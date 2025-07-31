@@ -3,34 +3,28 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 class UltraQrScanner {
-  static const MethodChannel _methodChannel = MethodChannel('ultra_qr_scanner');
-  static const EventChannel _eventChannel = EventChannel('ultra_qr_scanner_events');
-
-  static Stream<String>? _scanStream;
+  static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
+  static const EventChannel _eventChannel = EventChannel('ultra_qr_scanner_stream');
   static bool _isPrepared = false;
 
-  /// Preload and prepare the scanner for ultra-fast startup
-  /// Call this during app initialization for best performance
+  /// Preloads the scanner without starting the preview.
+  /// This should be called before showing the scanner UI.
   static Future<void> prepareScanner() async {
-    if (_isPrepared) return;
-
     try {
-      await _methodChannel.invokeMethod('prepareScanner');
+      await _channel.invokeMethod('prepareScanner');
       _isPrepared = true;
-    } on PlatformException catch (e) {
+    } catch (e) {
       throw UltraQrScannerException(
-      code: 'PREPARE_ERROR',
-      message: 'Failed to prepare scanner: ${e.message}',
-      details: e.message,
-    );
+        code: 'PREPARE_ERROR',
+        message: 'Failed to prepare scanner: ${e.toString()}',
+        details: e,
+      );
     }
   }
 
-  /// Perform a single QR scan and return the result
-  /// Scanner automatically stops after first detection
+  /// Starts the scanner and returns the first detected QR code.
+  /// Automatically stops the scanner after first detection.
   static Future<String?> scanOnce() async {
-    if (!_isPrepared) {
-      throw UltraQrScannerException('Scanner not prepared. Call prepareScanner() first.');
     }
 
     try {

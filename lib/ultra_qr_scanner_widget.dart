@@ -15,7 +15,7 @@ class UltraQrScannerWidget extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _UltraQrScannerWidgetState createState() => _UltraQrScannerWidgetState();
+  State<UltraQrScannerWidget> createState() => _UltraQrScannerWidgetState();
 }
 
 class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
@@ -59,7 +59,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
           (qrCode) {
             if (mounted) {
               setState(() {
-                _isScanning = false;
+                _isScanning = widget.autoStop ? false : true;
               });
               widget.onQRDetected(qrCode);
             }
@@ -132,72 +132,73 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
 
   @override
   Widget build(BuildContext context) {
-          Positioned(
-            top: 50,
-            right: 20,
-            child: IconButton(
-              onPressed: _toggleFlash,
-              icon: Icon(
-                _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                color: Colors.white,
-                size: 30,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildDefaultOverlay() {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.5),
-      ),
+      color: Colors.black,
       child: Stack(
         children: [
-          // Scanning frame
-          Center(
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: _isScanning ? Colors.green : Colors.white,
-                  width: 2,
+          if (_isPrepared && _hasPermission)
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              child: const Center(
+                child: Icon(
+                  Icons.camera_alt,
+                  size: 100,
+                  color: Colors.white,
                 ),
-                borderRadius: BorderRadius.circular(12),
               ),
-              child: _isScanning
-                  ? const Center(
-                child: Text(
-                  'Scanning...',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                  ),
-                ),
-              )
-                  : null,
+            )
+          else
+            const Center(
+              child: CircularProgressIndicator(),
             ),
-          ),
-
-          // Instructions
+          if (_isPrepared && _hasPermission)
+            Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        _isFlashOn ? Icons.flash_on : Icons.flash_off,
+                        color: Colors.white,
+                      ),
+                      onPressed: _toggleFlash,
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _currentCamera == 'back' ? Icons.camera_rear : Icons.camera_front,
+                        color: Colors.white,
+                      ),
+                      onPressed: _switchCamera,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Positioned(
-            bottom: 100,
+            bottom: 16,
             left: 0,
             right: 0,
-            child: Text(
-              'Point your camera at a QR code',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                backgroundColor: Colors.black.withOpacity(0.7),
+            child: Center(
+              child: ElevatedButton(
+                onPressed: _isScanning ? _stopScanner : _startScanner,
+                child: Text(_isScanning ? 'Stop' : 'Start Scan'),
               ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    if (_isScanning) {
+      _stopScanner();
+    }
+    super.dispose();
   }
 }

@@ -30,10 +30,28 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final _qrCodeController = TextEditingController();
+  final TextEditingController _qrCodeController = TextEditingController();
   bool _isScanning = false;
   bool _isFlashOn = false;
   String _currentCamera = 'back';
+
+  @override
+  void initState() {
+    super.initState();
+    _qrCodeController.addListener(() {
+      if (_qrCodeController.text.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Scanned: ${_qrCodeController.text}')),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _qrCodeController.dispose();
+    super.dispose();
+  }
 
   void _onQRDetected(String qrCode) {
     setState(() {
@@ -54,61 +72,6 @@ class _MyHomePageState extends State<MyHomePage> {
               onQRDetected: _onQRDetected,
               continuousScan: true,
               autoStop: true,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: ListTile(
-                              title: const Text('Flash'),
-                              trailing: Switch(
-                                value: _isFlashOn,
-                                onChanged: (value) async {
-                                  if (_permissionGranted) {
-                                    try {
-                                      await UltraQrScanner.toggleFlash(value);
-                                      setState(() => _isFlashOn = value);
-                                    } catch (e) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error: ${e.toString()}')),
-                                      );
-                                    }
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: _scanOnce,
-                            icon: const Icon(Icons.qr_code_scanner),
-                            label: const Text('Scan Once'),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: _openContinuousScanner,
-                            icon: const Icon(Icons.qr_code_scanner_outlined),
-                            label: const Text('Continuous Scan'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : const Center(
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Last Scanned QR Code:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
                       fontSize: 16,
                     ),
                   ),
