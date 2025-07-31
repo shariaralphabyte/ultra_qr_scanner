@@ -1,4 +1,4 @@
-package com.example.ultra_qr_scanner
+package com.shariar99.ultra_qr_scanner
 
 import android.Manifest
 import android.app.Activity
@@ -38,6 +38,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
   private var camera: Camera? = null
   private var previewView: PreviewView? = null
   private var imageAnalyzer: ImageAnalysis? = null
+  private var currentCameraPosition = CameraSelector.LENS_FACING_BACK
 
   private val isScanning = AtomicBoolean(false)
   private val isPrepared = AtomicBoolean(false)
@@ -84,6 +85,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
       "pauseDetection" -> pauseDetection(result)
       "resumeDetection" -> resumeDetection(result)
       "requestPermissions" -> requestPermissions(result)
+      "switchCamera" -> switchCamera(call.argument<String>("position") ?: "back", result)
       else -> result.notImplemented()
     }
   }
@@ -128,7 +130,10 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
       processImageProxy(imageProxy)
     }
 
-    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    val cameraSelector = when (currentCameraPosition) {
+      CameraSelector.LENS_FACING_BACK -> CameraSelector.DEFAULT_BACK_CAMERA
+      else -> CameraSelector.DEFAULT_FRONT_CAMERA
+    }
 
     try {
       cameraProvider?.unbindAll()
@@ -141,7 +146,25 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
 
       preview.setSurfaceProvider(previewView?.surfaceProvider)
     } catch (e: Exception) {
-      eventSink?.error("CAMERA_ERROR", e.message, null)
+      eventSink?.error("CAMERA_ERROR", e.message, e)
+    }
+  }
+
+  private fun switchCamera(position: String, result: MethodChannel.Result) {
+    scannerScope.launch {
+      try {
+        currentCameraPosition = when (position) {
+          "front" -> CameraSelector.LENS_FACING_FRONT
+          else -> CameraSelector.LENS_FACING_BACK
+        }
+
+        setupCamera()
+        result.success(true)
+      } catch (e: Exception) {
+        withContext(Dispatchers.Main) {
+          result.error("CAMERA_ERROR", e.message, e)
+        }
+      }
     }
   }
 

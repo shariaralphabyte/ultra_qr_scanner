@@ -53,51 +53,71 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
             resumeDetection(result: result)
         case "requestPermissions":
             requestPermissions(result: result)
+        case "switchCamera":
+            let position = (call.arguments as? [String: Any])?["position"] as? String ?? "back"
+            switchCamera(position: position, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
-    private func prepareScanner(result: @escaping FlutterResult) {
-        guard !isPrepared else {
-            result(nil)
-            return
-        }
-
-        processingQueue.async { [weak self] in
-            self?.setupCamera { success in
-                DispatchQueue.main.async {
-                    if success {
-                        self?.isPrepared = true
-                        result(nil)
-                    } else {
-                        result(FlutterError(code: "PREPARE_ERROR", message: "Failed to prepare camera", details: nil))
-                    }
-                }
-            }
-        }
     }
 
+    private var currentCameraPosition: AVCaptureDevice.Position = .back
+    private var cameraInput: AVCaptureDeviceInput?
+    
     private func setupCamera(completion: @escaping (Bool) -> Void) {
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .vga640x480
 
-        guard let captureSession = captureSession,
-              let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+        guard let captureSession = captureSession else {
+            completion(false)
+            return
+        }
+
+        // Get the current camera device
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
             completion(false)
             return
         }
 
         do {
-            let input = try AVCaptureDeviceInput(device: backCamera)
+            // Remove existing input if any
+            if let existingInput = captureSession.inputs.first as? AVCaptureDeviceInput {
+                captureSession.removeInput(existingInput)
+            }
+
+            // Create new input
+            let input = try AVCaptureDeviceInput(device: camera)
+            cameraInput = input
 
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
+            } else {
+                completion(false)
+                return
             }
 
             videoOutput = AVCaptureVideoDataOutput()
             videoOutput?.setSampleBufferDelegate(self, queue: processingQueue)
             videoOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+
+            if captureSession.canAddOutput(videoOutput!) {
+                captureSession.addOutput(videoOutput!)
+            } else {
+                completion(false)
+                return
+            }
+
+            // Set up preview layer
+            if let previewLayer = previewLayer {
+                previewLayer.connection?.videoOrientation = .portrait
+            }
+
+            completion(true)
+        } catch {
+            completion(false)
+        }
 
             if let videoOutput = videoOutput, captureSession.canAddOutput(videoOutput) {
                 captureSession.addOutput(videoOutput)

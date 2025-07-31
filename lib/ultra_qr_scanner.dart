@@ -99,16 +99,32 @@ class UltraQrScanner {
     }
   }
 
+  /// Switch between front and back camera
+  /// Position: 'front' or 'back'
+  static Future<void> switchCamera(String position) async {
+    try {
+      await _methodChannel.invokeMethod('switchCamera', {'position': position});
+    } on PlatformException catch (e) {
+      throw UltraQrScannerException('Failed to switch camera: ${e.message}');
+    }
+  }
+
   /// Check if scanner is prepared and ready
   static bool get isPrepared => _isPrepared;
 }
 
 /// Exception thrown by UltraQrScanner
 class UltraQrScannerException implements Exception {
+  final String code;
   final String message;
+  final dynamic details;
 
-  const UltraQrScannerException(this.message);
+  UltraQrScannerException({
+    required this.code,
+    required this.message,
+    this.details,
+  });
 
   @override
-  String toString() => 'UltraQrScannerException: $message';
+  String toString() => 'UltraQrScannerException: $message (code: $code)';
 }

@@ -23,6 +23,7 @@ class UltraQrScannerWidget extends StatefulWidget {
 class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   bool _isFlashOn = false;
   bool _isScanning = false;
+  bool _isFrontCamera = false;
   StreamSubscription<String>? _scanSubscription;
 
   @override
@@ -33,12 +34,25 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
 
   Future<void> _initializeScanner() async {
     try {
+      // Request camera permissions first
+      final hasPermission = await UltraQrScanner.requestPermissions();
+      if (!hasPermission) {
+        throw Exception('Camera permissions not granted');
+      }
+
+      // Prepare scanner
       if (!UltraQrScanner.isPrepared) {
         await UltraQrScanner.prepareScanner();
       }
+
       _startScanning();
     } catch (e) {
       debugPrint('Failed to initialize scanner: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -82,7 +96,26 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         _isFlashOn = newState;
       });
     } catch (e) {
-      debugPrint('Failed to toggle flash: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    try {
+      setState(() {
+        _isFrontCamera = !_isFrontCamera;
+      });
+      await UltraQrScanner.switchCamera(_isFrontCamera ? 'front' : 'back');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -96,9 +129,42 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Camera preview (handled natively)
+        // Camera preview container
         Container(
           color: Colors.black,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              const Icon(
+                Icons.camera_alt,
+                color: Colors.white,
+                size: 48,
+              ),
+              if (widget.showFlashToggle)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: IconButton(
+                    icon: Icon(
+                      _isFlashOn ? Icons.flash_on : Icons.flash_off,
+                      color: Colors.white,
+                    ),
+                    onPressed: _toggleFlash,
+                  ),
+                ),
+              Positioned(
+                bottom: 16,
+                right: 16,
+                child: IconButton(
+                  icon: Icon(
+                    _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
+                    color: Colors.white,
+                  ),
+                  onPressed: _switchCamera,
+                ),
+              ),
+            ],
+          ),
           child: const Center(
             child: Text(
               'Camera Preview',
