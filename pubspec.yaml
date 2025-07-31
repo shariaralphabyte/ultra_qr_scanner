@@ -1,6 +1,6 @@
 name: ultra_qr_scanner
 description: "Ultra-fast, low-latency QR code scanner plugin for Flutter with native performance optimization."
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/shariar99/ultra_qr_scanner
 repository: https://github.com/shariar99/ultra_qr_scanner
 
