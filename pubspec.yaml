@@ -1,7 +1,8 @@
 name: ultra_qr_scanner
 description: "A new Flutter project."
 version: 0.0.1
-homepage:
+homepage: https://github.com/shariar99/ultra_qr_scanner
+repository: https://github.com/shariar99/ultra_qr_scanner
 
 environment:
   sdk: ^3.7.2
