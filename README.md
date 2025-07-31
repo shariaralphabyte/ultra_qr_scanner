@@ -622,14 +622,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - 📚 [Documentation](https://pub.dev/documentation/ultra_qr_scanner/latest/)
-- 🐛 [Issue Tracker](https://github.com/yourusername/ultra_qr_scanner/issues)
-- 💬 [Discussions](https://github.com/yourusername/ultra_qr_scanner/discussions)
-- 📧 Email: support@yourpackage.com
+- 🐛 [Issue Tracker](https://github.com/shariaralphabyte/ultra_qr_scanner/issues)
+- 💬 [Discussions](https://github.com/shariaralphabyte/ultra_qr_scanner/discussions)
+- 📧 Email: contact.shariar.cse@.com
 
 ---
 
 <div align="center">
   <strong>Made with ❤️ for the Flutter community</strong>
   <br>
-  <sub>If this package helped you, please consider giving it a ⭐ on <a href="https://github.com/yourusername/ultra_qr_scanner">GitHub</a> and a 👍 on <a href="https://pub.dev/packages/ultra_qr_scanner">pub.dev</a></sub>
+  <sub>If this package helped you, please consider giving it a ⭐ on <a href="https://github.com/shariaralphabyte/ultra_qr_scanner">GitHub</a> and a 👍 on <a href="https://pub.dev/packages/ultra_qr_scanner">pub.dev</a></sub>
 </div>
