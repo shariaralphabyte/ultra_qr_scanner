@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.1
+## 0.0.2
 * Initial release of ultra_qr_scanner
 * Ultra-fast QR code scanning with native performance
 * Support for both Android (CameraX + MLKit) and iOS (AVCapture + Vision)
