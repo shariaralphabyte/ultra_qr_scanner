@@ -34,6 +34,8 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isScanning = false;
   bool _isFlashOn = false;
   String _currentCamera = 'back';
+  late UltraQrScanner _scanner;
+  bool _hasPermission = false;
 
   @override
   void initState() {
@@ -45,6 +47,27 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       }
     });
+    _initializeScanner();
+  }
+
+  Future<void> _initializeScanner() async {
+    try {
+      _scanner = UltraQrScanner(
+        methodChannel: MethodChannel('ultra_qr_scanner'),
+        eventChannel: EventChannel('ultra_qr_scanner_events'),
+      );
+      _hasPermission = await _scanner.requestPermissions();
+      if (_hasPermission) {
+        await _scanner.prepareScanner();
+      }
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initialize scanner: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -59,8 +82,129 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  Future<void> _startScan() async {
+    if (!_hasPermission) return;
+
+    try {
+      setState(() {
+        _isScanning = true;
+      });
+
+      final stream = _scanner.startScanStream();
+      stream.listen(
+        (qrCode) {
+          if (mounted) {
+            setState(() {
+              _isScanning = false;
+            });
+            _onQRDetected(qrCode);
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _isScanning = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Scan error: $error')),
+            );
+          }
+        },
+        onDone: () {
+          if (mounted) {
+            setState(() {
+              _isScanning = false;
+            });
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start scan: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopScan() async {
+    if (!_isScanning) return;
+    try {
+      await _scanner.stopScanner();
+      setState(() {
+        _isScanning = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to stop scan: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleFlash() async {
+    if (!_hasPermission) return;
+
+    try {
+      await _scanner.toggleFlash(!_isFlashOn);
+      setState(() {
+        _isFlashOn = !_isFlashOn;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to toggle flash: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (!_hasPermission) return;
+
+    try {
+      await _scanner.switchCamera(_currentCamera == 'back' ? 'front' : 'back');
+      setState(() {
+        _currentCamera = _currentCamera == 'back' ? 'front' : 'back';
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to switch camera: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (!_hasPermission) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.camera_alt, size: 64, color: Colors.grey),
+              SizedBox(height: 16),
+              Text('Camera permission required'),
+              ElevatedButton.icon(
+                onPressed: _initializeScanner,
+                icon: Icon(Icons.refresh),
+                label: Text('Request Permission'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -68,97 +212,59 @@ class _MyHomePageState extends State<MyHomePage> {
       body: Column(
         children: [
           Expanded(
-            child: UltraQrScannerWidget(
-              onQRDetected: _onQRDetected,
-              continuousScan: true,
-              autoStop: true,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _lastScannedCode!,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ],
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Center(
+                child: Text('Camera preview will be shown here'),
               ),
             ),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ListTile(
-                    title: const Text('Front Camera'),
-                    trailing: Switch(
-                      value: _isFrontCamera,
-                      onChanged: (value) async {
-                        if (_permissionGranted) {
-                          try {
-                            await UltraQrScanner.switchCamera(value ? 'front' : 'back');
-                            setState(() => _isFrontCamera = value);
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: ${e.toString()}')),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: ListTile(
-                    title: const Text('Flash'),
-                    trailing: Switch(
-                      value: _isFlashOn,
-                      onChanged: (value) async {
-                        if (_permissionGranted) {
-                          try {
-                            await UltraQrScanner.toggleFlash(value);
-                            setState(() => _isFlashOn = value);
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: ${e.toString()}')),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
-
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
               children: [
-                ElevatedButton.icon(
-                  onPressed: _scanOnce,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scan Once'),
+                TextField(
+                  controller: _qrCodeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Scanned QR Code',
+                    border: OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Colors.grey[100],
+                  ),
+                  readOnly: true,
+                  style: const TextStyle(fontSize: 16),
                 ),
-                ElevatedButton.icon(
-                  onPressed: _openContinuousScanner,
-                  icon: const Icon(Icons.qr_code_scanner_outlined),
-                  label: const Text('Continuous Scan'),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _isScanning ? _stopScan : _startScan,
+                      icon: Icon(_isScanning ? Icons.stop : Icons.qr_code_scanner_outlined),
+                      label: Text(_isScanning ? 'Stop Scan' : 'Start Scan'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _toggleFlash,
+                      icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
+                      label: Text(_isFlashOn ? 'Flash On' : 'Flash Off'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _switchCamera,
+                      icon: Icon(Icons.switch_camera),
+                      label: Text(_currentCamera == 'back' ? 'Front Camera' : 'Back Camera'),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
-      )
-          : const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.camera_alt, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('Camera permission required'),
+      ),
+    );
+  }
           ],
         ),
       ),

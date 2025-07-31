@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'ultra_qr_scanner.dart';
 
 class UltraQrScannerWidget extends StatefulWidget {
@@ -24,6 +25,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   bool _hasPermission = false;
   bool _isFlashOn = false;
   String _currentCamera = 'back';
+  PlatformViewLink? _platformViewLink;
 
   @override
   void initState() {
@@ -130,28 +132,52 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
     }
   }
 
+  Widget _buildCameraPreview() {
+    if (!_isPrepared || !_hasPermission) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_platformViewLink == null) {
+      _platformViewLink = PlatformViewLink(
+        viewType: 'ultra_qr_scanner_preview',
+        surfaceFactory: (
+          BuildContext context,
+          PlatformViewController controller,
+        ) {
+          return AndroidViewSurface(
+            controller: controller as AndroidViewController,
+            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+            hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+          );
+        },
+        onCreatePlatformView: (PlatformViewCreationParams params) {
+          return PlatformViewsService.initSurfaceAndroidView(
+            id: params.id,
+            viewType: 'ultra_qr_scanner_preview',
+            layoutDirection: TextDirection.ltr,
+            creationParams: <String, dynamic>{
+              'cameraPosition': _currentCamera,
+            },
+            creationParamsCodec: const StandardMessageCodec(),
+          )
+            ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
+            ..create();
+        },
+      );
+    }
+
+    return PlatformViewLinkWidget(link: _platformViewLink!);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.black,
       child: Stack(
         children: [
-          if (_isPrepared && _hasPermission)
-            Container(
-              width: double.infinity,
-              height: double.infinity,
-              child: const Center(
-                child: Icon(
-                  Icons.camera_alt,
-                  size: 100,
-                  color: Colors.white,
-                ),
-              ),
-            )
-          else
-            const Center(
-              child: CircularProgressIndicator(),
-            ),
+          _buildCameraPreview(),
           if (_isPrepared && _hasPermission)
             Align(
               alignment: Alignment.topRight,
@@ -196,6 +222,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
 
   @override
   void dispose() {
+    _platformViewLink?.dispose();
     if (_isScanning) {
       _stopScanner();
     }

@@ -3,7 +3,7 @@ import UIKit
 import AVFoundation
 import Vision
 
-public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
+public class UltraQrScannerPlugin: NSObject, FlutterPlugin, AVCaptureMetadataOutputObjectsDelegate {
     private var methodChannel: FlutterMethodChannel!
     private var eventChannel: FlutterEventChannel!
     private var eventSink: FlutterEventSink?
@@ -11,11 +11,15 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var videoOutput: AVCaptureVideoDataOutput?
+    private var backCamera: AVCaptureDevice?
 
     private var isScanning = false
     private var isPrepared = false
     private var frameSkipCounter = 0
     private let processingQueue = DispatchQueue(label: "qr_processing", qos: .userInitiated)
+
+    private var currentCameraPosition: AVCaptureDevice.Position = .back
+    private var cameraInput: AVCaptureDeviceInput?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = UltraQrScannerPlugin()
@@ -61,11 +65,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    }
-
-    private var currentCameraPosition: AVCaptureDevice.Position = .back
-    private var cameraInput: AVCaptureDeviceInput?
-    
     private func setupCamera(completion: @escaping (Bool) -> Void) {
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .vga640x480
@@ -121,27 +120,16 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
         } catch {
             completion(false)
         }
-
-            if let videoOutput = videoOutput, captureSession.canAddOutput(videoOutput) {
-                captureSession.addOutput(videoOutput)
-            }
-
-            // Disable autofocus to improve performance
-            try backCamera.lockForConfiguration()
-            if backCamera.isFocusModeSupported(.continuousAutoFocus) {
-                backCamera.focusMode = .continuousAutoFocus
-            }
-            backCamera.unlockForConfiguration()
-
-            completion(true)
-        } catch {
-            completion(false)
-        }
     }
 
     private func scanOnce(result: @escaping FlutterResult) {
         guard isPrepared else {
-            result(FlutterError(code: "NOT_PREPARED", message: "Scanner not prepared", details: nil))
+            let error = FlutterError(
+                code: "NOT_PREPARED",
+                message: "Scanner not prepared",
+                details: nil
+            )
+            result(error)
             return
         }
 
@@ -198,7 +186,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
             device.unlockForConfiguration()
             result(nil)
         } catch {
-            result(FlutterError(code: "FLASH_ERROR", message: error.localizedDescription, details: nil))
+            result(FlutterError(code: "FLASH_ERROR", message: "Failed to toggle flash", details: error.localizedDescription))
         }
     }
 
@@ -279,6 +267,18 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    private func switchCamera(position: String, result: @escaping FlutterResult) {
+        guard let newPosition = AVCaptureDevice.Position(rawValue: position) else {
+            result(FlutterError(code: "INVALID_CAMERA", message: "Invalid camera position", details: nil))
+            return
+        }
+
+        currentCameraPosition = newPosition
+        setupCamera { success in
+            result(success)
+        }
+    }
+
     private func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if !isScanning {
             return
@@ -322,8 +322,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
         captureSession?.stopRunning()
     }
 
-    // MARK: - FlutterStreamHandler
-    extension UltraQrScannerPlugin: FlutterStreamHandler {
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
         return nil
