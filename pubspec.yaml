@@ -5,13 +5,15 @@ homepage: https://github.com/shariar99/ultra_qr_scanner
 repository: https://github.com/shariar99/ultra_qr_scanner
 
 environment:
-  sdk: ^3.7.2
+  sdk: '>=3.0.0 <4.0.0'
   flutter: '>=3.3.0'
 
 dependencies:
   flutter:
     sdk: flutter
   plugin_platform_interface: ^2.0.2
+  camera: ^0.10.5+10
+  permission_handler: ^11.0.1
 
 dev_dependencies:
   flutter_test:

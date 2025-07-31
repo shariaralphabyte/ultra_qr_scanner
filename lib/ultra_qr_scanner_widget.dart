@@ -163,13 +163,13 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
                   onPressed: _switchCamera,
                 ),
               ),
+              const Center(
+                child: Text(
+                  'Camera Preview',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
             ],
-          ),
-          child: const Center(
-            child: Text(
-              'Camera Preview',
-              style: TextStyle(color: Colors.white),
-            ),
           ),
         ),
 

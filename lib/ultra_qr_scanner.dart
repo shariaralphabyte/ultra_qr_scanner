@@ -18,7 +18,11 @@ class UltraQrScanner {
       await _methodChannel.invokeMethod('prepareScanner');
       _isPrepared = true;
     } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to prepare scanner: ${e.message}');
+      throw UltraQrScannerException(
+      code: 'PREPARE_ERROR',
+      message: 'Failed to prepare scanner: ${e.message}',
+      details: e.message,
+    );
     }
   }
 
@@ -33,83 +37,70 @@ class UltraQrScanner {
       final result = await _methodChannel.invokeMethod('scanOnce');
       return result as String?;
     } on PlatformException catch (e) {
-      throw UltraQrScannerException('Scan failed: ${e.message}');
+      throw UltraQrScannerException(
+      code: 'SCAN_ERROR',
     }
   }
 
-  /// Start continuous QR scanning stream
-  /// Returns a stream that emits detected QR codes
-  static Stream<String> scanStream() {
-    if (!_isPrepared) {
-      throw UltraQrScannerException('Scanner not prepared. Call prepareScanner() first.');
-    }
-
-    _scanStream ??= _eventChannel.receiveBroadcastStream().map((event) => event as String);
-
-    // Start the scanning
-    _methodChannel.invokeMethod('startScanStream');
-
-    return _scanStream!;
+  /// Starts continuous scanning stream.
+  /// Returns a stream of detected QR codes.
+  /// Automatically stops after first detection if [autoStop] is true.
+  static Stream<String> startScanStream({bool autoStop = true}) {
+    return _eventChannel.receiveBroadcastStream().map((event) => event.toString());
   }
 
-  /// Stop the scanner and release camera resources
+  /// Stops the scanner and releases resources.
   static Future<void> stopScanner() async {
     try {
-      await _methodChannel.invokeMethod('stopScanner');
-      _scanStream = null;
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to stop scanner: ${e.message}');
+      await _channel.invokeMethod('stopScanner');
+    } catch (e) {
+      throw UltraQrScannerException(
+        message: 'Failed to stop scanner: ${e.toString()}',
+        code: 'STOP_ERROR',
+        details: e,
+      );
     }
   }
 
-  /// Toggle flashlight on/off
+  /// Toggles the camera flash.
   static Future<void> toggleFlash(bool enabled) async {
     try {
-      await _methodChannel.invokeMethod('toggleFlash', {'enabled': enabled});
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to toggle flash: ${e.message}');
+      await _channel.invokeMethod('toggleFlash', {'enabled': enabled});
+    } catch (e) {
+      throw UltraQrScannerException(
+        message: 'Failed to toggle flash: ${e.toString()}',
+        code: 'FLASH_ERROR',
+        details: e,
+      );
     }
   }
 
-  /// Pause QR detection without stopping camera
-  static Future<void> pauseDetection() async {
-    try {
-      await _methodChannel.invokeMethod('pauseDetection');
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to pause detection: ${e.message}');
-    }
-  }
-
-  /// Resume QR detection
-  static Future<void> resumeDetection() async {
-    try {
-      await _methodChannel.invokeMethod('resumeDetection');
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to resume detection: ${e.message}');
-    }
-  }
-
-  /// Request camera permissions
-  static Future<bool> requestPermissions() async {
-    try {
-      final granted = await _methodChannel.invokeMethod('requestPermissions');
-      return granted as bool;
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Permission request failed: ${e.message}');
-    }
-  }
-
-  /// Switch between front and back camera
-  /// Position: 'front' or 'back'
+  /// Switches between front and back camera.
   static Future<void> switchCamera(String position) async {
     try {
-      await _methodChannel.invokeMethod('switchCamera', {'position': position});
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException('Failed to switch camera: ${e.message}');
+      await _channel.invokeMethod('switchCamera', {'position': position});
+    } catch (e) {
+      throw UltraQrScannerException(
+        message: 'Failed to switch camera: ${e.toString()}',
+        code: 'CAMERA_SWITCH_ERROR',
+        details: e,
+      );
     }
   }
 
-  /// Check if scanner is prepared and ready
+  /// Requests camera permissions.
+  /// Returns true if permissions are granted.
+  static Future<bool> requestPermissions() async {
+    try {
+      return await _channel.invokeMethod('requestPermissions');
+    } catch (e) {
+      throw UltraQrScannerException(
+        message: 'Failed to request permissions: ${e.toString()}',
+        code: 'PERMISSION_ERROR',
+        details: e,
+      );
+    }
+  }
   static bool get isPrepared => _isPrepared;
 }
 

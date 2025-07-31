@@ -91,63 +91,68 @@ class _HomePageState extends State<HomePage> {
                   ),
 
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: SwitchListTile(
-                          title: const Text('Front Camera'),
-                          value: _isFrontCamera,
-                          onChanged: (value) async {
-                            if (_permissionGranted) {
-                              try {
-                                await UltraQrScanner.switchCamera(value ? 'front' : 'back');
-                                setState(() => _isFrontCamera = value);
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: ${e.toString()}')),
-                                );
-                              }
-                            }
-                          },
-                        ),
-                      ),
-                      Expanded(
-                        child: SwitchListTile(
-                          title: const Text('Flash'),
-                          value: _isFlashOn,
-                          onChanged: (value) async {
-                            if (_permissionGranted) {
-                              try {
-                                await UltraQrScanner.toggleFlash(value);
-                                setState(() => _isFlashOn = value);
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: ${e.toString()}')),
-                                );
-                              }
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  child: Column(
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: _scanOnce,
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: const Text('Scan Once'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ListTile(
+                              title: const Text('Front Camera'),
+                              trailing: Switch(
+                                value: _isFrontCamera,
+                                onChanged: (value) async {
+                                  if (_permissionGranted) {
+                                    try {
+                                      await UltraQrScanner.switchCamera(value ? 'front' : 'back');
+                                      setState(() => _isFrontCamera = value);
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error: ${e.toString()}')),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: ListTile(
+                              title: const Text('Flash'),
+                              trailing: Switch(
+                                value: _isFlashOn,
+                                onChanged: (value) async {
+                                  if (_permissionGranted) {
+                                    try {
+                                      await UltraQrScanner.toggleFlash(value);
+                                      setState(() => _isFlashOn = value);
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error: ${e.toString()}')),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      ElevatedButton.icon(
-                        onPressed: _openContinuousScanner,
-                        icon: const Icon(Icons.qr_code_scanner_outlined),
-                        label: const Text('Continuous Scan'),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: _scanOnce,
+                            icon: const Icon(Icons.qr_code_scanner),
+                            label: const Text('Scan Once'),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: _openContinuousScanner,
+                            icon: const Icon(Icons.qr_code_scanner_outlined),
+                            label: const Text('Continuous Scan'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -180,39 +185,43 @@ class _HomePageState extends State<HomePage> {
             child: Row(
               children: [
                 Expanded(
-                  child: SwitchListTile(
+                  child: ListTile(
                     title: const Text('Front Camera'),
-                    value: _isFrontCamera,
-                    onChanged: (value) async {
-                      if (_permissionGranted) {
-                        try {
-                          await UltraQrScanner.switchCamera(value ? 'front' : 'back');
-                          setState(() => _isFrontCamera = value);
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error: ${e.toString()}')),
-                          );
+                    trailing: Switch(
+                      value: _isFrontCamera,
+                      onChanged: (value) async {
+                        if (_permissionGranted) {
+                          try {
+                            await UltraQrScanner.switchCamera(value ? 'front' : 'back');
+                            setState(() => _isFrontCamera = value);
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error: ${e.toString()}')),
+                            );
+                          }
                         }
-                      }
-                    },
+                      },
+                    ),
                   ),
                 ),
                 Expanded(
-                  child: SwitchListTile(
+                  child: ListTile(
                     title: const Text('Flash'),
-                    value: _isFlashOn,
-                    onChanged: (value) async {
-                      if (_permissionGranted) {
-                        try {
-                          await UltraQrScanner.toggleFlash(value);
-                          setState(() => _isFlashOn = value);
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error: ${e.toString()}')),
-                          );
+                    trailing: Switch(
+                      value: _isFlashOn,
+                      onChanged: (value) async {
+                        if (_permissionGranted) {
+                          try {
+                            await UltraQrScanner.toggleFlash(value);
+                            setState(() => _isFlashOn = value);
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error: ${e.toString()}')),
+                            );
+                          }
                         }
-                      }
-                    },
+                      },
+                    ),
                   ),
                 ),
               ],

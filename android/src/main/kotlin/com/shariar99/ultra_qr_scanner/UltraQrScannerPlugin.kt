@@ -96,6 +96,15 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
       return
     }
 
+    // Check permissions first
+    val cameraPermission = Manifest.permission.CAMERA
+    val hasPermission = ContextCompat.checkSelfPermission(context!!, cameraPermission) == PackageManager.PERMISSION_GRANTED
+
+    if (!hasPermission) {
+      result.error("PERMISSION_DENIED", "Camera permission not granted", null)
+      return
+    }
+
     scannerScope.launch {
       try {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context!!)
@@ -108,7 +117,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
         }
       } catch (e: Exception) {
         withContext(Dispatchers.Main) {
-          result.error("PREPARE_ERROR", e.message, null)
+          result.error("PREPARE_ERROR", e.message ?: "Failed to prepare camera", e)
         }
       }
     }
@@ -116,14 +125,17 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
 
   private fun setupCamera() {
     previewView = PreviewView(context!!)
+    previewView?.scaleType = PreviewView.ScaleType.FIT_CENTER
 
     val preview = Preview.Builder()
       .setTargetResolution(android.util.Size(640, 480))
+      .setTargetRotation(Surface.ROTATION_0)
       .build()
 
     imageAnalyzer = ImageAnalysis.Builder()
       .setTargetResolution(android.util.Size(640, 480))
       .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+      .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
       .build()
 
     imageAnalyzer?.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -148,6 +160,65 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
     } catch (e: Exception) {
       eventSink?.error("CAMERA_ERROR", e.message, e)
     }
+  }
+
+  private fun processImageProxy(imageProxy: ImageProxy) {
+    if (!isScanning.get()) {
+      imageProxy.close()
+      return
+    }
+
+    // Frame throttling - process every 3rd frame
+    if (!frameSkipCounter.compareAndSet(false, true)) {
+      frameSkipCounter.set(false)
+      imageProxy.close()
+      return
+    }
+
+    val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+    val image = imageProxy.image ?: return
+
+    try {
+      // Create MLKit input image
+      val inputImage = InputImage.fromMediaImage(image, rotationDegrees)
+      
+      // Process with MLKit
+      barcodeScanner.process(inputImage)
+        .addOnSuccessListener { barcodes ->
+          if (barcodes.isNotEmpty() && isScanning.get()) {
+            val qrCode = barcodes.first().rawValue
+            if (!qrCode.isNullOrEmpty()) {
+              isScanning.set(false)
+              eventSink?.success(qrCode)
+              
+              // Auto-stop camera after detection
+              scannerScope.launch(Dispatchers.Main) {
+                stopCameraInternal()
+              }
+            }
+          }
+        }
+        .addOnFailureListener { e ->
+          eventSink?.error("SCAN_ERROR", e.message, e)
+        }
+        .addOnCompleteListener {
+          imageProxy.close()
+        }
+    } catch (e: Exception) {
+      eventSink?.error("SCAN_ERROR", e.message, e)
+      imageProxy.close()
+    }
+  }
+
+  private fun stopCameraInternal() {
+    scannerScope.launch(Dispatchers.Main) {
+      cameraProvider?.unbindAll()
+      camera = null
+      previewView = null
+      imageAnalyzer = null
+      cameraExecutor.shutdown()
+    }
+  }
   }
 
   private fun switchCamera(position: String, result: MethodChannel.Result) {
@@ -340,6 +411,14 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodChannel.MethodCallHandler,
 
   override fun onDetachedFromActivity() {
     activity = null
+    scannerScope.cancel()
+    cameraExecutor.shutdown()
+    cameraProvider?.unbindAll()
+    cameraProvider = null
+    camera = null
+    previewView = null
+    imageAnalyzer = null
+    eventSink = null
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

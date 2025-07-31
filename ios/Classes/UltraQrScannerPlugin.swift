@@ -69,13 +69,15 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
     private func setupCamera(completion: @escaping (Bool) -> Void) {
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .vga640x480
+        captureSession?.automaticallyConfiguresCaptureDeviceForWideColor = false
+        captureSession?.automaticallyConfiguresPreferredVideoSettings = false
 
         guard let captureSession = captureSession else {
             completion(false)
             return
         }
 
-        // Get the current camera device
+        // Configure camera
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
             completion(false)
             return
@@ -91,6 +93,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
             let input = try AVCaptureDeviceInput(device: camera)
             cameraInput = input
 
+            // Add input
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
             } else {
@@ -98,21 +101,21 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            videoOutput = AVCaptureVideoDataOutput()
-            videoOutput?.setSampleBufferDelegate(self, queue: processingQueue)
-            videoOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-
-            if captureSession.canAddOutput(videoOutput!) {
-                captureSession.addOutput(videoOutput!)
+            // Configure metadata output for QR code detection
+            let metadataOutput = AVCaptureMetadataOutput()
+            if captureSession.canAddOutput(metadataOutput) {
+                captureSession.addOutput(metadataOutput)
+                metadataOutput.setMetadataObjectsDelegate(self, queue: processingQueue)
+                metadataOutput.metadataObjectTypes = [.qr]
             } else {
                 completion(false)
                 return
             }
 
             // Set up preview layer
-            if let previewLayer = previewLayer {
-                previewLayer.connection?.videoOrientation = .portrait
-            }
+            previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+            previewLayer?.videoGravity = .resizeAspectFill
+            previewLayer?.connection?.videoOrientation = .portrait
 
             completion(true)
         } catch {
@@ -209,58 +212,118 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
         result(nil)
     }
 
-    private func requestPermissions(result: @escaping FlutterResult) {
+    private func prepareScanner(result: @escaping FlutterResult) {
+        guard !isPrepared else {
+            result(nil)
+            return
+        }
+
+        // Check permissions first
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            result(true)
+            break // Already authorized
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
-                    result(granted)
+                    if !granted {
+                        result(FlutterError(code: "PERMISSION_DENIED",
+                                           message: "Camera permission denied",
+                                           details: nil))
+                        return
+                    }
+                    self.prepareCamera(result: result)
                 }
             }
-        default:
-            result(false)
+            return
+        case .denied, .restricted:
+            result(FlutterError(code: "PERMISSION_DENIED",
+                               message: "Camera permission denied",
+                               details: nil))
+            return
+        @unknown default:
+            result(FlutterError(code: "PERMISSION_ERROR",
+                               message: "Unknown authorization status",
+                               details: nil))
+            return
+        }
+
+        prepareCamera(result: result)
+    }
+
+    private func prepareCamera(result: @escaping FlutterResult) {
+        processingQueue.async { [weak self] in
+            self?.setupCamera { success in
+                DispatchQueue.main.async {
+                    if success {
+                        self?.isPrepared = true
+                        result(nil)
+                    } else {
+                        result(FlutterError(code: "PREPARE_ERROR", message: "Failed to prepare camera", details: nil))
+                    }
+                }
+            }
         }
     }
-}
 
-// MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
-extension UltraQrScannerPlugin: AVCaptureVideoDataOutputSampleBufferDelegate {
-    public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard isScanning else { return }
+    private func requestPermissions(result: @escaping FlutterResult) {
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async {
+                if !granted {
+                    result(FlutterError(code: "PERMISSION_DENIED",
+                                       message: "Camera permission denied",
+                                       details: nil))
+                    return
+                }
+                result(granted)
+            }
+        }
+    }
+
+    private func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if !isScanning {
+            return
+        }
 
         // Frame throttling - process every 3rd frame
-        frameSkipCounter += 1
-        guard frameSkipCounter % 3 == 0 else { return }
+        if frameSkipCounter.compareAndSet(false, true) {
+            frameSkipCounter.set(false)
+            return
+        }
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        let request = VNDetectBarcodesRequest { [weak self] request, error in
-            guard let self = self, self.isScanning else { return }
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext(options: nil)
+        
+        do {
+            // Create Vision request
+            let request = VNDetectBarcodesRequest { [weak self] request, error in
+                guard let self = self, self.isScanning else { return }
 
-            if let results = request.results as? [VNBarcodeObservation],
-               let firstBarcode = results.first,
-               let qrValue = firstBarcode.payloadStringValue {
-
-                self.isScanning = false
-
-                DispatchQueue.main.async {
-                    self.eventSink?(qrValue)
-                    self.stopCameraSession()
+                if let results = request.results as? [VNBarcodeObservation],
+                   let firstBarcode = results.first,
+                   let qrValue = firstBarcode.payloadStringValue {
+                    
+                    DispatchQueue.main.async {
+                        self.isScanning = false
+                        self.eventSink?(qrValue)
+                        self.stopCameraInternal()
+                    }
                 }
             }
+
+            try context.perform([request], on: ciImage)
+        } catch {
+            print("Error processing frame: \(error)")
         }
-
-        request.symbologies = [.QR]
-
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-        try? handler.perform([request])
     }
-}
 
-// MARK: - FlutterStreamHandler
-extension UltraQrScannerPlugin: FlutterStreamHandler {
+    private func stopCameraInternal() {
+        captureSession?.stopRunning()
+    }
+
+    // MARK: - FlutterStreamHandler
+    extension UltraQrScannerPlugin: FlutterStreamHandler {
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
         return nil
