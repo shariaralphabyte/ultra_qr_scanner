@@ -3,184 +3,135 @@ import 'package:flutter/material.dart';
 import 'ultra_qr_scanner.dart';
 
 class UltraQrScannerWidget extends StatefulWidget {
-  final Function(String) onQrDetected;
-  final Widget? overlay;
-  final bool showFlashToggle;
+  final Function(String) onQRDetected;
+  final bool continuousScan;
   final bool autoStop;
 
   const UltraQrScannerWidget({
     Key? key,
-    required this.onQrDetected,
-    this.overlay,
-    this.showFlashToggle = true,
+    required this.onQRDetected,
+    this.continuousScan = false,
     this.autoStop = true,
   }) : super(key: key);
 
   @override
-  State<UltraQrScannerWidget> createState() => _UltraQrScannerWidgetState();
+  _UltraQrScannerWidgetState createState() => _UltraQrScannerWidgetState();
 }
 
 class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
-  bool _isFlashOn = false;
   bool _isScanning = false;
-  bool _isFrontCamera = false;
-  StreamSubscription<String>? _scanSubscription;
+  bool _isPrepared = false;
+  bool _hasPermission = false;
+  bool _isFlashOn = false;
+  String _currentCamera = 'back';
 
   @override
   void initState() {
     super.initState();
-    _initializeScanner();
+    _requestPermissions();
   }
 
-  Future<void> _initializeScanner() async {
+  Future<void> _requestPermissions() async {
     try {
-      // Request camera permissions first
-      final hasPermission = await UltraQrScanner.requestPermissions();
-      if (!hasPermission) {
-        throw Exception('Camera permissions not granted');
-      }
-
-      // Prepare scanner
-      if (!UltraQrScanner.isPrepared) {
+      _hasPermission = await UltraQrScanner.requestPermissions();
+      if (_hasPermission) {
         await UltraQrScanner.prepareScanner();
+        setState(() {
+          _isPrepared = true;
+        });
       }
-
-      _startScanning();
     } catch (e) {
-      debugPrint('Failed to initialize scanner: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
+      print('Permission error: $e');
     }
   }
 
-  void _startScanning() {
-    if (_isScanning) return;
+  Future<void> _startScanner() async {
+    if (!_isPrepared || !_hasPermission) return;
 
-    setState(() {
-      _isScanning = true;
-    });
+    try {
+      setState(() {
+        _isScanning = true;
+      });
 
-    _scanSubscription = UltraQrScanner.scanStream().listen(
+      if (widget.continuousScan) {
+        final stream = UltraQrScanner.startScanStream();
+        stream.listen(
           (qrCode) {
-        widget.onQrDetected(qrCode);
-        if (widget.autoStop) {
-          _stopScanning();
+            if (mounted) {
+              setState(() {
+                _isScanning = false;
+              });
+              widget.onQRDetected(qrCode);
+            }
+          },
+          onError: (error) {
+            if (mounted) {
+              setState(() {
+                _isScanning = false;
+              });
+              print('Scan error: $error');
+            }
+          },
+          onDone: () {
+            if (mounted) {
+              setState(() {
+                _isScanning = false;
+              });
+            }
+          },
+        );
+      } else {
+        final qrCode = await UltraQrScanner.scanOnce();
+        if (qrCode != null && mounted) {
+          widget.onQRDetected(qrCode);
         }
-      },
-      onError: (error) {
-        debugPrint('Scan error: $error');
+      }
+    } catch (e) {
+      if (mounted) {
         setState(() {
           _isScanning = false;
         });
-      },
-    );
+      }
+      print('Scanner error: $e');
+    }
   }
 
-  void _stopScanning() {
-    _scanSubscription?.cancel();
-    _scanSubscription = null;
-    UltraQrScanner.stopScanner();
-    setState(() {
-      _isScanning = false;
-    });
+  Future<void> _stopScanner() async {
+    if (!_isScanning) return;
+    try {
+      await UltraQrScanner.stopScanner();
+      setState(() {
+        _isScanning = false;
+      });
+    } catch (e) {
+      print('Stop error: $e');
+    }
   }
 
   Future<void> _toggleFlash() async {
     try {
-      final newState = !_isFlashOn;
-      await UltraQrScanner.toggleFlash(newState);
+      await UltraQrScanner.toggleFlash(!_isFlashOn);
       setState(() {
-        _isFlashOn = newState;
+        _isFlashOn = !_isFlashOn;
       });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
+      print('Flash error: $e');
     }
   }
 
   Future<void> _switchCamera() async {
     try {
+      await UltraQrScanner.switchCamera(_currentCamera == 'back' ? 'front' : 'back');
       setState(() {
-        _isFrontCamera = !_isFrontCamera;
+        _currentCamera = _currentCamera == 'back' ? 'front' : 'back';
       });
-      await UltraQrScanner.switchCamera(_isFrontCamera ? 'front' : 'back');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
+      print('Camera switch error: $e');
     }
   }
 
   @override
-  void dispose() {
-    _stopScanning();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // Camera preview container
-        Container(
-          color: Colors.black,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              const Icon(
-                Icons.camera_alt,
-                color: Colors.white,
-                size: 48,
-              ),
-              if (widget.showFlashToggle)
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: IconButton(
-                    icon: Icon(
-                      _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                      color: Colors.white,
-                    ),
-                    onPressed: _toggleFlash,
-                  ),
-                ),
-              Positioned(
-                bottom: 16,
-                right: 16,
-                child: IconButton(
-                  icon: Icon(
-                    _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
-                    color: Colors.white,
-                  ),
-                  onPressed: _switchCamera,
-                ),
-              ),
-              const Center(
-                child: Text(
-                  'Camera Preview',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Overlay
-        if (widget.overlay != null) widget.overlay!,
-
-        // Default overlay with scanning indicator
-        if (widget.overlay == null) _buildDefaultOverlay(),
-
-        // Flash toggle button
-        if (widget.showFlashToggle)
           Positioned(
             top: 50,
             right: 20,

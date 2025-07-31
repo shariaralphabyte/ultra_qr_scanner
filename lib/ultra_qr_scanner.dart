@@ -38,7 +38,10 @@ class UltraQrScanner {
       return result as String?;
     } on PlatformException catch (e) {
       throw UltraQrScannerException(
-      code: 'SCAN_ERROR',
+        code: 'SCAN_ERROR',
+        message: 'Failed to scan QR code: ${e.message}',
+        details: e.message,
+      );
     }
   }
 

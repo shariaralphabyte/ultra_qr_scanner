@@ -1,118 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
-import 'package:ultra_qr_scanner/ultra_qr_scanner_widget.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ultra QR Scanner Demo',
+      title: 'Ultra QR Scanner Example',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const HomePage(),
+      home: const MyHomePage(title: 'Ultra QR Scanner Example'),
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  String? _lastScannedCode;
-  bool _permissionGranted = false;
-  bool _isFrontCamera = false;
+class _MyHomePageState extends State<MyHomePage> {
+  final _qrCodeController = TextEditingController();
+  bool _isScanning = false;
   bool _isFlashOn = false;
+  String _currentCamera = 'back';
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeApp();
-  }
-
-  Future<void> _initializeApp() async {
-    final granted = await UltraQrScanner.requestPermissions();
+  void _onQRDetected(String qrCode) {
     setState(() {
-      _permissionGranted = granted;
+      _qrCodeController.text = qrCode;
     });
-
-    if (granted) {
-      await UltraQrScanner.prepareScanner();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ultra QR Scanner Demo'),
-        centerTitle: true,
+        title: Text(widget.title),
       ),
-      body: _permissionGranted
-          ? Column(
-              children: [
-                if (_lastScannedCode != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      border: Border.all(color: Colors.green),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Last Scanned QR Code:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _lastScannedCode!,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ListTile(
-                              title: const Text('Front Camera'),
-                              trailing: Switch(
-                                value: _isFrontCamera,
-                                onChanged: (value) async {
-                                  if (_permissionGranted) {
-                                    try {
-                                      await UltraQrScanner.switchCamera(value ? 'front' : 'back');
-                                      setState(() => _isFrontCamera = value);
-                                    } catch (e) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error: ${e.toString()}')),
-                                      );
-                                    }
-                                  }
-                                },
+      body: Column(
+        children: [
+          Expanded(
+            child: UltraQrScannerWidget(
+              onQRDetected: _onQRDetected,
+              continuousScan: true,
+              autoStop: true,
                               ),
                             ),
                           ),
