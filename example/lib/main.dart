@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
@@ -34,6 +35,7 @@ class _ScannerPageState extends State<ScannerPage> {
   String? scannedData;
   bool isScanning = false;
   ScanStats? stats;
+  Timer? _statsTimer;
 
   @override
   void initState() {
@@ -387,6 +389,7 @@ class _ScannerPageState extends State<ScannerPage> {
 
   @override
   void dispose() {
+    _statsTimer?.cancel();
     UltraQrScanner.dispose();
     super.dispose();
   }

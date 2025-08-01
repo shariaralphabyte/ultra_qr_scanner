@@ -1,248 +1,346 @@
-library ultra_qr_scanner;
-
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'ultra_qr_scanner.dart';
 
-/// Ultra-fast QR scanner plugin with native performance optimizations
-class UltraQrScanner {
+/// Ultra-fast QR scanner widget with native camera preview
+class UltraQrScannerWidget extends StatefulWidget {
+  final Function(QrScanResult result) onScan;
+  final Function(String error)? onError;
+  final ScanConfig? config;
+  final List<BarcodeFormat>? formats;
+  final bool continuousScanning;
+  final Widget? overlay;
+  final bool showTorchButton;
+  final bool showFocusIndicator;
+
+  const UltraQrScannerWidget({
+    Key? key,
+    required this.onScan,
+    this.onError,
+    this.config,
+    this.formats,
+    this.continuousScanning = false,
+    this.overlay,
+    this.showTorchButton = true,
+    this.showFocusIndicator = true,
+  }) : super(key: key);
+
+  @override
+  State<UltraQrScannerWidget> createState() => _UltraQrScannerWidgetState();
+}
+
+class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget>
+    with WidgetsBindingObserver {
   static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
-  static const EventChannel _scanChannel = EventChannel('ultra_qr_scanner/scan');
+  bool _isInitialized = false;
+  bool _isScanning = false;
+  bool _torchEnabled = false;
+  bool _hasTorch = false;
+  Point? _focusPoint;
+  Timer? _focusTimer;
+  StreamSubscription<QrScanResult>? _scanSubscription;
 
-  static StreamSubscription<String>? _scanSubscription;
-  static StreamController<QrScanResult>? _resultController;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeScanner();
+  }
 
-  /// Initialize the scanner with optimized settings
-  static Future<bool> initialize({
-    ScanConfig? config,
-  }) async {
-    try {
-      final result = await _channel.invokeMethod('initialize', {
-        'enableGpuAcceleration': config?.enableGpuAcceleration ?? true,
-        'optimizeForSpeed': config?.optimizeForSpeed ?? true,
-        'previewResolution': config?.previewResolution?.name ?? 'medium',
-        'focusMode': config?.focusMode?.name ?? 'auto',
-        'enableMultiScanning': config?.enableMultiScanning ?? false,
-        'torchEnabled': config?.torchEnabled ?? false,
-      });
-      return result ?? false;
-    } catch (e) {
-      return false;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _focusTimer?.cancel();
+    _scanSubscription?.cancel();
+    UltraQrScanner.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isInitialized) return;
+
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _pauseScanning();
+        break;
+      case AppLifecycleState.resumed:
+        _resumeScanning();
+        break;
+      default:
+        break;
     }
   }
 
-  /// Start scanning with ultra-fast detection
-  static Stream<QrScanResult> startScanning({
-    List<BarcodeFormat>? formats,
-    bool continuousScanning = false,
-  }) {
-    _resultController?.close();
-    _resultController = StreamController<QrScanResult>.broadcast();
+  Future<void> _initializeScanner() async {
+    try {
+      final initialized = await UltraQrScanner.initialize(config: widget.config);
+      if (initialized) {
+        _hasTorch = await UltraQrScanner.hasTorch();
+        setState(() => _isInitialized = true);
+        _startScanning();
+      }
+    } catch (e) {
+      widget.onError?.call('Failed to initialize scanner: $e');
+    }
+  }
 
-    _scanSubscription?.cancel();
-    _scanSubscription = _scanChannel.receiveBroadcastStream({
-      'formats': formats?.map((f) => f.name).toList() ?? ['qr'],
-      'continuous': continuousScanning,
-    }).listen(
-          (data) {
-        if (data is Map<dynamic, dynamic>) {
-          final result = QrScanResult.fromMap(Map<String, dynamic>.from(data));
-          _resultController?.add(result);
+  void _startScanning() {
+    if (_isScanning) return;
+
+    setState(() => _isScanning = true);
+
+    _scanSubscription = UltraQrScanner.startScanning(
+      formats: widget.formats,
+      continuousScanning: widget.continuousScanning,
+    ).listen(
+          (result) {
+        HapticFeedback.lightImpact();
+        widget.onScan(result);
+
+        if (!widget.continuousScanning) {
+          setState(() => _isScanning = false);
         }
       },
       onError: (error) {
-        _resultController?.addError(error);
+        widget.onError?.call('Scanning error: $error');
       },
     );
-
-    return _resultController!.stream;
   }
 
-  /// Stop scanning and release resources
-  static Future<void> stopScanning() async {
-    await _scanSubscription?.cancel();
+  void _pauseScanning() {
+    _scanSubscription?.cancel();
     _scanSubscription = null;
-    await _resultController?.close();
-    _resultController = null;
-    await _channel.invokeMethod('stopScanning');
+    UltraQrScanner.stopScanning();
+    setState(() => _isScanning = false);
   }
 
-  /// Toggle torch/flashlight
-  static Future<bool> toggleTorch() async {
-    try {
-      final result = await _channel.invokeMethod('toggleTorch');
-      return result ?? false;
-    } catch (e) {
-      return false;
+  void _resumeScanning() {
+    if (_isInitialized) {
+      _startScanning();
     }
   }
 
-  /// Check if device has torch capability
-  static Future<bool> hasTorch() async {
-    try {
-      final result = await _channel.invokeMethod('hasTorch');
-      return result ?? false;
-    } catch (e) {
-      return false;
-    }
+  Future<void> _toggleTorch() async {
+    final enabled = await UltraQrScanner.toggleTorch();
+    setState(() => _torchEnabled = enabled);
   }
 
-  /// Focus camera at specific point
-  static Future<bool> focusAt(double x, double y) async {
-    try {
-      final result = await _channel.invokeMethod('focusAt', {
-        'x': x,
-        'y': y,
-      });
-      return result ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
+  void _onTapFocus(TapUpDetails details) {
+    if (!widget.showFocusIndicator) return;
 
-  /// Get scanning statistics for performance monitoring
-  static Future<ScanStats?> getStats() async {
-    try {
-      final result = await _channel.invokeMethod('getStats');
-      if (result != null) {
-        return ScanStats.fromMap(Map<String, dynamic>.from(result));
+    final renderBox = context.findRenderObject() as RenderBox;
+    final localPosition = renderBox.globalToLocal(details.globalPosition);
+    final x = localPosition.dx / renderBox.size.width;
+    final y = localPosition.dy / renderBox.size.height;
+
+    UltraQrScanner.focusAt(x, y);
+
+    setState(() => _focusPoint = Point(localPosition.dx, localPosition.dy));
+
+    _focusTimer?.cancel();
+    _focusTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() => _focusPoint = null);
       }
-    } catch (e) {
-      // Handle error
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
     }
-    return null;
+
+    return Stack(
+      children: [
+        // Native camera preview
+        GestureDetector(
+          onTapUp: _onTapFocus,
+          child: Platform.isAndroid
+              ? const AndroidView(
+            viewType: 'ultra_qr_scanner_view',
+            creationParams: <String, dynamic>{},
+            creationParamsCodec: StandardMessageCodec(),
+          )
+              : const UiKitView(
+            viewType: 'ultra_qr_scanner_view',
+            creationParams: <String, dynamic>{},
+            creationParamsCodec: StandardMessageCodec(),
+          ),
+        ),
+
+        // Custom overlay
+        if (widget.overlay != null) widget.overlay!,
+
+        // Default scanning overlay
+        if (widget.overlay == null) _buildDefaultOverlay(),
+
+        // Torch button
+        if (widget.showTorchButton && _hasTorch)
+          Positioned(
+            top: 50,
+            right: 20,
+            child: _buildTorchButton(),
+          ),
+
+        // Focus indicator
+        if (widget.showFocusIndicator && _focusPoint != null)
+          Positioned(
+            left: _focusPoint!.x - 30,
+            top: _focusPoint!.y - 30,
+            child: _buildFocusIndicator(),
+          ),
+      ],
+    );
   }
 
-  /// Dispose and cleanup resources
-  static Future<void> dispose() async {
-    await stopScanning();
-    await _channel.invokeMethod('dispose');
-  }
-}
-
-/// QR scan result with detailed information
-class QrScanResult {
-  final String data;
-  final BarcodeFormat format;
-  final List<Point> corners;
-  final DateTime timestamp;
-  final double confidence;
-  final int processingTimeMs;
-
-  const QrScanResult({
-    required this.data,
-    required this.format,
-    required this.corners,
-    required this.timestamp,
-    required this.confidence,
-    required this.processingTimeMs,
-  });
-
-  factory QrScanResult.fromMap(Map<String, dynamic> map) {
-    return QrScanResult(
-      data: map['data'] ?? '',
-      format: BarcodeFormat.values.firstWhere(
-            (f) => f.name == map['format'],
-        orElse: () => BarcodeFormat.qr,
+  Widget _buildDefaultOverlay() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.5),
       ),
-      corners: (map['corners'] as List<dynamic>?)
-          ?.map((c) => Point.fromMap(Map<String, dynamic>.from(c)))
-          .toList() ?? [],
-      timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] ?? 0),
-      confidence: (map['confidence'] ?? 0.0).toDouble(),
-      processingTimeMs: map['processingTimeMs'] ?? 0,
+      child: Stack(
+        children: [
+          // Scanning area cutout
+          Center(
+            child: Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Colors.white,
+                  width: 2,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  color: Colors.transparent,
+                ),
+              ),
+            ),
+          ),
+
+          // Scanning animation
+          if (_isScanning)
+            Center(
+              child: SizedBox(
+                width: 250,
+                height: 250,
+                child: _buildScanningAnimation(),
+              ),
+            ),
+
+          // Instructions
+          Positioned(
+            bottom: 100,
+            left: 20,
+            right: 20,
+            child: const Text(
+              'Point your camera at a QR code',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScanningAnimation() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(seconds: 2),
+      builder: (context, value, child) {
+        return CustomPaint(
+          painter: ScanLinePainter(value),
+        );
+      },
+      onEnd: () {
+        if (_isScanning && mounted) {
+          setState(() {});
+        }
+      },
+    );
+  }
+
+  Widget _buildTorchButton() {
+    return Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: IconButton(
+        icon: Icon(
+          _torchEnabled ? Icons.flash_on : Icons.flash_off,
+          color: Colors.white,
+          size: 24,
+        ),
+        onPressed: _toggleTorch,
+      ),
+    );
+  }
+
+  Widget _buildFocusIndicator() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: 0.0),
+      duration: const Duration(seconds: 2),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Colors.white,
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(30),
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
-/// Point coordinates for barcode corners
-class Point {
-  final double x;
-  final double y;
+/// Custom painter for scanning line animation
+class ScanLinePainter extends CustomPainter {
+  final double progress;
 
-  const Point(this.x, this.y);
+  ScanLinePainter(this.progress);
 
-  factory Point.fromMap(Map<String, dynamic> map) {
-    return Point(
-      (map['x'] ?? 0.0).toDouble(),
-      (map['y'] ?? 0.0).toDouble(),
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.green
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    final y = size.height * progress;
+    canvas.drawLine(
+      Offset(0, y),
+      Offset(size.width, y),
+      paint,
     );
   }
-}
 
-/// Supported barcode formats
-enum BarcodeFormat {
-  qr,
-  dataMatrix,
-  code128,
-  code39,
-  code93,
-  ean8,
-  ean13,
-  upca,
-  upce,
-  pdf417,
-  aztec,
-}
-
-/// Scanner configuration for optimization
-class ScanConfig {
-  final bool enableGpuAcceleration;
-  final bool optimizeForSpeed;
-  final PreviewResolution previewResolution;
-  final FocusMode focusMode;
-  final bool enableMultiScanning;
-  final bool torchEnabled;
-
-  const ScanConfig({
-    this.enableGpuAcceleration = true,
-    this.optimizeForSpeed = true,
-    this.previewResolution = PreviewResolution.medium,
-    this.focusMode = FocusMode.auto,
-    this.enableMultiScanning = false,
-    this.torchEnabled = false,
-  });
-}
-
-/// Preview resolution options
-enum PreviewResolution {
-  low,    // 480p - fastest
-  medium, // 720p - balanced
-  high,   // 1080p - highest quality
-}
-
-/// Camera focus modes
-enum FocusMode {
-  auto,
-  continuous,
-  manual,
-  fixed,
-}
-
-/// Scanning performance statistics
-class ScanStats {
-  final int totalScans;
-  final int successfulScans;
-  final double averageProcessingTime;
-  final double successRate;
-  final int framesPerSecond;
-
-  const ScanStats({
-    required this.totalScans,
-    required this.successfulScans,
-    required this.averageProcessingTime,
-    required this.successRate,
-    required this.framesPerSecond,
-  });
-
-  factory ScanStats.fromMap(Map<String, dynamic> map) {
-    return ScanStats(
-      totalScans: map['totalScans'] ?? 0,
-      successfulScans: map['successfulScans'] ?? 0,
-      averageProcessingTime: (map['averageProcessingTime'] ?? 0.0).toDouble(),
-      successRate: (map['successRate'] ?? 0.0).toDouble(),
-      framesPerSecond: map['framesPerSecond'] ?? 0,
-    );
+  @override
+  bool shouldRepaint(ScanLinePainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }

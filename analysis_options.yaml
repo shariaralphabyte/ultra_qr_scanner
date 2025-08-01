@@ -1,4 +1,36 @@
 include: package:flutter_lints/flutter.yaml
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+linter:
+  rules:
+    # Disable rules that conflict with our plugin structure
+    unnecessary_library_name: false
+
+    # Allow prints for debugging (common in plugins)
+    avoid_print: false
+
+    # Allow non-const constructors for flexibility
+    prefer_const_constructors: false
+    prefer_const_constructors_in_immutables: false
+    prefer_const_literals_to_create_immutables: false
+
+    # Plugin-specific rules
+    use_key_in_widget_constructors: false
+
+analyzer:
+  exclude:
+    # Exclude generated files and build outputs
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/generated_plugin_registrant.dart"
+    - "build/**"
+    - ".dart_tool/**"
+
+  errors:
+    # Treat certain warnings as errors for better code quality
+    invalid_assignment: error
+    invalid_null_aware_operator: error
+
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
