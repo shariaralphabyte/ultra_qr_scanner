@@ -1,136 +1,248 @@
-// lib/ultra_qr_scanner.dart
+library ultra_qr_scanner;
+
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
+/// Ultra-fast QR scanner plugin with native performance optimizations
 class UltraQrScanner {
-  final MethodChannel _methodChannel;
-  final EventChannel _eventChannel;
-  bool _isPrepared = false;
+  static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
+  static const EventChannel _scanChannel = EventChannel('ultra_qr_scanner/scan');
 
-  UltraQrScanner({
-    required MethodChannel methodChannel,
-    required EventChannel eventChannel,
-  })  : _methodChannel = methodChannel,
-        _eventChannel = eventChannel;
+  static StreamSubscription<String>? _scanSubscription;
+  static StreamController<QrScanResult>? _resultController;
 
-  /// Preloads the scanner without starting the preview.
-  /// This should be called before showing the scanner UI.
-  Future<void> prepareScanner() async {
+  /// Initialize the scanner with optimized settings
+  static Future<bool> initialize({
+    ScanConfig? config,
+  }) async {
     try {
-      await _methodChannel.invokeMethod('prepareScanner');
-      _isPrepared = true;
-    } on PlatformException catch (e) {
-      throw UltraQrScannerException(
-        code: e.code,
-        message: e.message ?? 'Failed to prepare scanner',
-        details: e.details,
-      );
-    }
-  }
-
-  /// Starts the scanner and returns the first detected QR code.
-  /// Automatically stops the scanner after first detection.
-  Future<String?> scanOnce() async {
-    if (!_isPrepared) {
-      throw UltraQrScannerException(
-        code: 'NOT_PREPARED',
-        message: 'Scanner not prepared. Call prepareScanner() first.',
-      );
-    }
-    try {
-      return await _methodChannel.invokeMethod('scanOnce');
+      final result = await _channel.invokeMethod('initialize', {
+        'enableGpuAcceleration': config?.enableGpuAcceleration ?? true,
+        'optimizeForSpeed': config?.optimizeForSpeed ?? true,
+        'previewResolution': config?.previewResolution?.name ?? 'medium',
+        'focusMode': config?.focusMode?.name ?? 'auto',
+        'enableMultiScanning': config?.enableMultiScanning ?? false,
+        'torchEnabled': config?.torchEnabled ?? false,
+      });
+      return result ?? false;
     } catch (e) {
-      throw UltraQrScannerException(
-        code: 'SCAN_ERROR',
-        message: 'Failed to scan QR code: ${e.toString()}',
-        details: e,
-      );
+      return false;
     }
   }
 
-  /// Starts continuous scanning stream.
-  /// Returns a stream of detected QR codes.
-  /// Automatically stops after first detection if autoStop is true.
-  Stream<String> startScanStream({bool autoStop = true}) {
-    if (!_isPrepared) {
-      throw UltraQrScannerException(
-        code: 'NOT_PREPARED',
-        message: 'Scanner not prepared. Call prepareScanner() first.',
-      );
-    }
-    return _eventChannel.receiveBroadcastStream().map((event) => event.toString());
+  /// Start scanning with ultra-fast detection
+  static Stream<QrScanResult> startScanning({
+    List<BarcodeFormat>? formats,
+    bool continuousScanning = false,
+  }) {
+    _resultController?.close();
+    _resultController = StreamController<QrScanResult>.broadcast();
+
+    _scanSubscription?.cancel();
+    _scanSubscription = _scanChannel.receiveBroadcastStream({
+      'formats': formats?.map((f) => f.name).toList() ?? ['qr'],
+      'continuous': continuousScanning,
+    }).listen(
+          (data) {
+        if (data is Map<dynamic, dynamic>) {
+          final result = QrScanResult.fromMap(Map<String, dynamic>.from(data));
+          _resultController?.add(result);
+        }
+      },
+      onError: (error) {
+        _resultController?.addError(error);
+      },
+    );
+
+    return _resultController!.stream;
   }
 
-  /// Stops the scanner and releases resources.
-  Future<void> stopScanner() async {
+  /// Stop scanning and release resources
+  static Future<void> stopScanning() async {
+    await _scanSubscription?.cancel();
+    _scanSubscription = null;
+    await _resultController?.close();
+    _resultController = null;
+    await _channel.invokeMethod('stopScanning');
+  }
+
+  /// Toggle torch/flashlight
+  static Future<bool> toggleTorch() async {
     try {
-      await _methodChannel.invokeMethod('stopScanner');
-      _isPrepared = false;
+      final result = await _channel.invokeMethod('toggleTorch');
+      return result ?? false;
     } catch (e) {
-      throw UltraQrScannerException(
-        code: 'STOP_ERROR',
-        message: 'Failed to stop scanner: ${e.toString()}',
-        details: e,
-      );
+      return false;
     }
   }
 
-  /// Toggles the camera flash.
-  Future<void> toggleFlash(bool enabled) async {
+  /// Check if device has torch capability
+  static Future<bool> hasTorch() async {
     try {
-      await _methodChannel.invokeMethod('toggleFlash', {'enabled': enabled});
+      final result = await _channel.invokeMethod('hasTorch');
+      return result ?? false;
     } catch (e) {
-      throw UltraQrScannerException(
-        code: 'FLASH_ERROR',
-        message: 'Failed to toggle flash: ${e.toString()}',
-        details: e,
-      );
+      return false;
     }
   }
 
-  /// Switches between front and back camera.
-  Future<void> switchCamera(String position) async {
+  /// Focus camera at specific point
+  static Future<bool> focusAt(double x, double y) async {
     try {
-      await _methodChannel.invokeMethod('switchCamera', {'position': position});
+      final result = await _channel.invokeMethod('focusAt', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
     } catch (e) {
-      throw UltraQrScannerException(
-        code: 'CAMERA_SWITCH_ERROR',
-        message: 'Failed to switch camera: ${e.toString()}',
-        details: e,
-      );
+      return false;
     }
   }
 
-  /// Requests camera permissions.
-  /// Returns true if permissions are granted.
-  Future<bool> requestPermissions() async {
+  /// Get scanning statistics for performance monitoring
+  static Future<ScanStats?> getStats() async {
     try {
-      return await _methodChannel.invokeMethod('requestPermissions');
+      final result = await _channel.invokeMethod('getStats');
+      if (result != null) {
+        return ScanStats.fromMap(Map<String, dynamic>.from(result));
+      }
     } catch (e) {
-      throw UltraQrScannerException(
-        code: 'PERMISSION_ERROR',
-        message: 'Failed to request permissions: ${e.toString()}',
-        details: e,
-      );
+      // Handle error
     }
+    return null;
   }
 
-  /// Checks if scanner is prepared and ready.
-  bool get isPrepared => _isPrepared;
+  /// Dispose and cleanup resources
+  static Future<void> dispose() async {
+    await stopScanning();
+    await _channel.invokeMethod('dispose');
+  }
 }
 
-/// Exception thrown by UltraQrScanner
-class UltraQrScannerException implements Exception {
-  final String code;
-  final String message;
-  final dynamic details;
+/// QR scan result with detailed information
+class QrScanResult {
+  final String data;
+  final BarcodeFormat format;
+  final List<Point> corners;
+  final DateTime timestamp;
+  final double confidence;
+  final int processingTimeMs;
 
-  UltraQrScannerException({
-    required this.code,
-    required this.message,
-    this.details,
+  const QrScanResult({
+    required this.data,
+    required this.format,
+    required this.corners,
+    required this.timestamp,
+    required this.confidence,
+    required this.processingTimeMs,
   });
 
-  @override
-  String toString() => 'UltraQrScannerException: $message (code: $code)';
+  factory QrScanResult.fromMap(Map<String, dynamic> map) {
+    return QrScanResult(
+      data: map['data'] ?? '',
+      format: BarcodeFormat.values.firstWhere(
+            (f) => f.name == map['format'],
+        orElse: () => BarcodeFormat.qr,
+      ),
+      corners: (map['corners'] as List<dynamic>?)
+          ?.map((c) => Point.fromMap(Map<String, dynamic>.from(c)))
+          .toList() ?? [],
+      timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] ?? 0),
+      confidence: (map['confidence'] ?? 0.0).toDouble(),
+      processingTimeMs: map['processingTimeMs'] ?? 0,
+    );
+  }
+}
+
+/// Point coordinates for barcode corners
+class Point {
+  final double x;
+  final double y;
+
+  const Point(this.x, this.y);
+
+  factory Point.fromMap(Map<String, dynamic> map) {
+    return Point(
+      (map['x'] ?? 0.0).toDouble(),
+      (map['y'] ?? 0.0).toDouble(),
+    );
+  }
+}
+
+/// Supported barcode formats
+enum BarcodeFormat {
+  qr,
+  dataMatrix,
+  code128,
+  code39,
+  code93,
+  ean8,
+  ean13,
+  upca,
+  upce,
+  pdf417,
+  aztec,
+}
+
+/// Scanner configuration for optimization
+class ScanConfig {
+  final bool enableGpuAcceleration;
+  final bool optimizeForSpeed;
+  final PreviewResolution previewResolution;
+  final FocusMode focusMode;
+  final bool enableMultiScanning;
+  final bool torchEnabled;
+
+  const ScanConfig({
+    this.enableGpuAcceleration = true,
+    this.optimizeForSpeed = true,
+    this.previewResolution = PreviewResolution.medium,
+    this.focusMode = FocusMode.auto,
+    this.enableMultiScanning = false,
+    this.torchEnabled = false,
+  });
+}
+
+/// Preview resolution options
+enum PreviewResolution {
+  low,    // 480p - fastest
+  medium, // 720p - balanced
+  high,   // 1080p - highest quality
+}
+
+/// Camera focus modes
+enum FocusMode {
+  auto,
+  continuous,
+  manual,
+  fixed,
+}
+
+/// Scanning performance statistics
+class ScanStats {
+  final int totalScans;
+  final int successfulScans;
+  final double averageProcessingTime;
+  final double successRate;
+  final int framesPerSecond;
+
+  const ScanStats({
+    required this.totalScans,
+    required this.successfulScans,
+    required this.averageProcessingTime,
+    required this.successRate,
+    required this.framesPerSecond,
+  });
+
+  factory ScanStats.fromMap(Map<String, dynamic> map) {
+    return ScanStats(
+      totalScans: map['totalScans'] ?? 0,
+      successfulScans: map['successfulScans'] ?? 0,
+      averageProcessingTime: (map['averageProcessingTime'] ?? 0.0).toDouble(),
+      successRate: (map['successRate'] ?? 0.0).toDouble(),
+      framesPerSecond: map['framesPerSecond'] ?? 0,
+    );
+  }
 }

@@ -1,252 +1,401 @@
 package com.shariar99.ultra_qr_scanner
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Build
-import androidx.annotation.NonNull
+import android.graphics.*
+import android.hardware.camera2.*
+import android.media.ImageReader
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Size
+import android.view.Surface
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.barcode.common.Barcode
+import androidx.lifecycle.LifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.plugin.common.BinaryMessenger
-import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import io.flutter.plugin.common.MethodChannel.Result
-import io.flutter.plugin.common.EventChannel.EventSink
-import io.flutter.plugin.common.EventChannel.StreamHandler
+import io.flutter.plugin.common.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.min
 
-class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, ActivityAware {
-    private lateinit var messenger: BinaryMessenger
-    private lateinit var context: Context
-    private lateinit var cameraProvider: ProcessCameraProvider
-    private lateinit var cameraExecutor: ExecutorService
-    private var eventSink: EventSink? = null
-    private var isScanning = false
-    private var isPrepared = false
-    private var isFlashOn = false
-    private var cameraSelector: CameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+class UltraQrScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
+
+    private lateinit var channel: MethodChannel
+    private lateinit var scanChannel: EventChannel
+    private var context: Context? = null
+    private var activity: Activity? = null
+
+    // Camera and scanning components
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var camera: Camera? = null
     private var preview: Preview? = null
-    private var imageAnalyzer: ImageAnalysis? = null
+    private var imageAnalysis: ImageAnalysis? = null
     private var barcodeScanner: BarcodeScanner? = null
+    private var cameraExecutor: ExecutorService? = null
 
-    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        messenger = flutterPluginBinding.binaryMessenger
-        context = flutterPluginBinding.applicationContext
-        
-        val methodChannel = MethodChannel(messenger, "ultra_qr_scanner")
-        methodChannel.setMethodCallHandler(this)
+    // Performance optimization
+    private var backgroundThread: HandlerThread? = null
+    private var backgroundHandler: Handler? = null
+    private var scanningEnabled = false
+    private var torchEnabled = false
 
-        val eventChannel = EventChannel(messenger, "ultra_qr_scanner_events")
-        eventChannel.setStreamHandler(this)
+    // Statistics
+    private var totalScans = 0
+    private var successfulScans = 0
+    private var processingTimes = mutableListOf<Long>()
+    private var lastFrameTime = 0L
+    private var frameCount = 0
 
-        cameraExecutor = Executors.newSingleThreadExecutor()
+    // Configuration
+    private var enableGpuAcceleration = true
+    private var optimizeForSpeed = true
+    private var continuousScanning = false
+
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 1001
+        private const val MAX_PROCESSING_TIME_BUFFER = 100
     }
 
-    override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
+    override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        context = flutterPluginBinding.applicationContext
+
+        channel = MethodChannel(flutterPluginBinding.binaryMessenger, "ultra_qr_scanner")
+        channel.setMethodCallHandler(this)
+
+        scanChannel = EventChannel(flutterPluginBinding.binaryMessenger, "ultra_qr_scanner/scan")
+
+        // Register native view factory
+        flutterPluginBinding
+            .platformViewRegistry
+            .registerViewFactory("ultra_qr_scanner_view", ScannerViewFactory(context!!))
+    }
+
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        channel.setMethodCallHandler(null)
+        cleanup()
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "prepareScanner" -> prepareScanner(result)
-            "scanOnce" -> scanOnce(result)
-            "startScanStream" -> startScanStream(result)
-            "stopScanner" -> stopScanner(result)
-            "toggleFlash" -> toggleFlash(call, result)
-            "requestPermissions" -> requestPermissions(result)
-            "switchCamera" -> switchCamera(call, result)
+            "initialize" -> initialize(call, result)
+            "startScanning" -> startScanning(result)
+            "stopScanning" -> stopScanning(result)
+            "toggleTorch" -> toggleTorch(result)
+            "hasTorch" -> hasTorch(result)
+            "focusAt" -> focusAt(call, result)
+            "getStats" -> getStats(result)
+            "dispose" -> dispose(result)
             else -> result.notImplemented()
         }
     }
 
-    private fun prepareScanner(result: Result) {
-        if (isPrepared) {
-            result.success(true)
-            return
-        }
-
-        if (!hasCameraPermission()) {
-            result.error("PERMISSION_DENIED", "Camera permission not granted", null)
+    private fun initialize(call: MethodCall, result: MethodChannel.Result) {
+        if (!hasPermissions()) {
+            requestPermissions()
+            result.success(false)
             return
         }
 
         try {
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
+            // Get configuration
+            enableGpuAcceleration = call.argument("enableGpuAcceleration") ?: true
+            optimizeForSpeed = call.argument("optimizeForSpeed") ?: true
+
+            // Initialize background processing
+            backgroundThread = HandlerThread("UltraQrScanner").apply { start() }
+            backgroundHandler = Handler(backgroundThread!!.looper)
+
+            // Initialize camera executor
+            cameraExecutor = Executors.newSingleThreadExecutor()
+
+            // Configure barcode scanner with optimizations
+            val options = BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE) // Focus on QR codes for speed
+                .build()
+
+            barcodeScanner = BarcodeScanning.getClient(options)
+
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("INIT_ERROR", "Failed to initialize: ${e.message}", null)
+        }
+    }
+
+    private fun startScanning(result: MethodChannel.Result) {
+        if (!scanningEnabled) {
+            scanningEnabled = true
+            setupCamera()
+        }
+        result.success(true)
+    }
+
+    private fun stopScanning(result: MethodChannel.Result) {
+        scanningEnabled = false
+        cameraProvider?.unbindAll()
+        result.success(true)
+    }
+
+    private fun setupCamera() {
+        val activity = this.activity ?: return
+        val context = this.context ?: return
+
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            try {
                 cameraProvider = cameraProviderFuture.get()
-                isPrepared = true
-                result.success(true)
-            }, ContextCompat.getMainExecutor(context))
-        } catch (e: Exception) {
-            result.error("ERROR", e.message, e.localizedMessage)
-        }
-    }
-
-    private fun scanOnce(result: Result) {
-        if (!isPrepared) {
-            result.error("NOT_PREPARED", "Scanner not prepared", null)
-            return
-        }
-
-        isScanning = true
-        startCameraPreview()
-        result.success(null)
-    }
-
-    private fun startScanStream(result: Result) {
-        if (!isPrepared) {
-            result.error("NOT_PREPARED", "Scanner not prepared", null)
-            return
-        }
-
-        isScanning = true
-        startCameraPreview()
-        result.success(null)
-    }
-
-    private fun stopScanner(result: Result) {
-        isScanning = false
-        preview?.unbindAll()
-        result.success(true)
-    }
-
-    private fun toggleFlash(call: MethodCall, result: Result) {
-        if (!isPrepared) {
-            result.error("NOT_PREPARED", "Scanner not prepared", null)
-            return
-        }
-
-        val enabled = call.argument<Boolean>("enabled") ?: false
-        isFlashOn = enabled
-        
-        try {
-            val camera = cameraProvider.getCamera(cameraSelector)
-            val characteristics = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = characteristics.cameraIdList.firstOrNull { id ->
-                characteristics.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == 
-                if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) CameraMetadata.LENS_FACING_BACK else CameraMetadata.LENS_FACING_FRONT
+                bindCameraUseCases(activity)
+            } catch (e: Exception) {
+                // Handle error
             }
-            
-            if (cameraId == null || !characteristics.getCameraCharacteristics(cameraId).get(CameraCharacteristics.FLASH_INFO_AVAILABLE)!!) {
-                result.error("NO_FLASH", "Flash not available", null)
-                return
-            }
-
-            camera.cameraControl.enableTorch(enabled)
-            result.success(true)
-        } catch (e: Exception) {
-            result.error("FLASH_ERROR", e.message ?: "Failed to toggle flash", e.localizedMessage)
-        }
+        }, ContextCompat.getMainExecutor(context))
     }
 
-    private fun switchCamera(call: MethodCall, result: Result) {
-        if (!isPrepared) {
-            result.error("NOT_PREPARED", "Scanner not prepared", null)
-            return
-        }
+    private fun bindCameraUseCases(lifecycleOwner: LifecycleOwner) {
+        val cameraProvider = this.cameraProvider ?: return
 
-        val position = call.argument<String>("position") ?: "back"
-        cameraSelector = if (position == "front") {
-            CameraSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CameraSelector.DEFAULT_BACK_CAMERA
-        }
-        startCameraPreview()
-        result.success(true)
-    }
+        // Camera selector - prefer back camera
+        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-    private fun requestPermissions(result: Result) {
-        result.success(hasCameraPermission())
-    }
+        // Preview use case
+        preview = Preview.Builder()
+            .setTargetResolution(Size(720, 1280)) // Optimized resolution
+            .build()
 
-    private fun hasCameraPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-    }
-
-    private fun startCameraPreview() {
-        preview = Preview.Builder().build()
-        imageAnalyzer = ImageAnalysis.Builder()
+        // Image analysis for QR scanning
+        imageAnalysis = ImageAnalysis.Builder()
+            .setTargetResolution(Size(640, 480)) // Lower resolution for faster processing
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
-            .also {
-                it.setAnalyzer(cameraExecutor) { image ->
-                    val imageProxy = image.image ?: return@setAnalyzer
-                    val inputImage = InputImage.fromMediaImage(imageProxy, image.imageInfo.rotationDegrees)
-                    processImage(inputImage)
-                    image.close()
+            .also { analysis ->
+                analysis.setAnalyzer(cameraExecutor!!) { imageProxy ->
+                    processImage(imageProxy)
                 }
             }
 
         try {
+            // Unbind use cases before rebinding
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                context as ActivityPluginBinding.ActivityContext,
+
+            // Bind use cases to camera
+            camera = cameraProvider.bindToLifecycle(
+                lifecycleOwner,
                 cameraSelector,
                 preview,
-                imageAnalyzer
+                imageAnalysis
             )
+
         } catch (e: Exception) {
-            eventSink?.error("ERROR", e.message ?: "Failed to start camera", e.localizedMessage)
+            // Handle binding error
         }
     }
 
-    private fun processImage(image: InputImage) {
-        if (!isScanning) return
+    private fun processImage(imageProxy: ImageProxy) {
+        if (!scanningEnabled) {
+            imageProxy.close()
+            return
+        }
 
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        barcodeScanner = BarcodeScanning.getClient(options)
+        val currentTime = System.currentTimeMillis()
+        val startTime = System.nanoTime()
 
-        barcodeScanner?.process(image)
-            ?.addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    val qrCode = barcode.rawValue ?: continue
-                    eventSink?.success(qrCode)
-                    if (!isScanning) break
+        totalScans++
+        frameCount++
+
+        // Calculate FPS
+        if (currentTime - lastFrameTime >= 1000) {
+            lastFrameTime = currentTime
+            frameCount = 0
+        }
+
+        val mediaImage = imageProxy.image
+        if (mediaImage != null) {
+            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+
+            barcodeScanner?.process(image)
+                ?.addOnSuccessListener { barcodes ->
+                    val processingTime = (System.nanoTime() - startTime) / 1_000_000L // Convert to ms
+
+                    if (barcodes.isNotEmpty()) {
+                        successfulScans++
+
+                        // Update processing times buffer
+                        processingTimes.add(processingTime)
+                        if (processingTimes.size > MAX_PROCESSING_TIME_BUFFER) {
+                            processingTimes.removeAt(0)
+                        }
+
+                        val barcode = barcodes[0]
+                        val result = mapOf(
+                            "data" to (barcode.rawValue ?: ""),
+                            "format" to getFormatName(barcode.format),
+                            "corners" to barcode.cornerPoints?.map { point ->
+                                mapOf("x" to point.x.toDouble(), "y" to point.y.toDouble())
+                            } ?: emptyList<Map<String, Double>>(),
+                            "timestamp" to currentTime,
+                            "confidence" to 1.0, // ML Kit doesn't provide confidence
+                            "processingTimeMs" to processingTime.toInt()
+                        )
+
+                        // Send result through event channel
+                        activity?.runOnUiThread {
+                            scanChannel.setStreamHandler(object : EventChannel.StreamHandler {
+                                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                                    events?.success(result)
+
+                                    if (!continuousScanning) {
+                                        scanningEnabled = false
+                                    }
+                                }
+
+                                override fun onCancel(arguments: Any?) {}
+                            })
+                        }
+                    }
                 }
-            }
-            ?.addOnFailureListener { e ->
-                eventSink?.error("ERROR", e.message ?: "Failed to process image", e.localizedMessage)
-            }
+                ?.addOnCompleteListener {
+                    imageProxy.close()
+                }
+        } else {
+            imageProxy.close()
+        }
     }
 
-    override fun onListen(arguments: Any?, events: EventSink?) {
-        eventSink = events
+    private fun getFormatName(format: Int): String {
+        return when (format) {
+            Barcode.FORMAT_QR_CODE -> "qr"
+            Barcode.FORMAT_DATA_MATRIX -> "dataMatrix"
+            Barcode.FORMAT_CODE_128 -> "code128"
+            Barcode.FORMAT_CODE_39 -> "code39"
+            Barcode.FORMAT_CODE_93 -> "code93"
+            Barcode.FORMAT_EAN_8 -> "ean8"
+            Barcode.FORMAT_EAN_13 -> "ean13"
+            Barcode.FORMAT_UPC_A -> "upca"
+            Barcode.FORMAT_UPC_E -> "upce"
+            Barcode.FORMAT_PDF417 -> "pdf417"
+            Barcode.FORMAT_AZTEC -> "aztec"
+            else -> "unknown"
+        }
     }
 
-    override fun onCancel(arguments: Any?) {
-        eventSink = null
+    private fun toggleTorch(result: MethodChannel.Result) {
+        val camera = this.camera
+        if (camera?.cameraInfo?.hasFlashUnit() == true) {
+            torchEnabled = !torchEnabled
+            camera.cameraControl.enableTorch(torchEnabled)
+            result.success(torchEnabled)
+        } else {
+            result.success(false)
+        }
     }
 
-    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        // Handle activity lifecycle
+    private fun hasTorch(result: MethodChannel.Result) {
+        val hasTorch = camera?.cameraInfo?.hasFlashUnit() ?: false
+        result.success(hasTorch)
     }
 
-    override fun onDetachedFromActivityForConfigChanges() {
-        // Handle config changes
+    private fun focusAt(call: MethodCall, result: MethodChannel.Result) {
+        val x = call.argument<Double>("x") ?: 0.5
+        val y = call.argument<Double>("y") ?: 0.5
+
+        val camera = this.camera
+        if (camera != null) {
+            val factory = SurfaceOrientedMeteringPointFactory(1.0f, 1.0f)
+            val point = factory.createPoint(x.toFloat(), y.toFloat())
+            val action = FocusMeteringAction.Builder(point).build()
+
+            camera.cameraControl.startFocusAndMetering(action)
+            result.success(true)
+        } else {
+            result.success(false)
+        }
     }
 
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        // Handle config changes
+    private fun getStats(result: MethodChannel.Result) {
+        val averageProcessingTime = if (processingTimes.isNotEmpty()) {
+            processingTimes.average()
+        } else {
+            0.0
+        }
+
+        val successRate = if (totalScans > 0) {
+            (successfulScans.toDouble() / totalScans.toDouble()) * 100
+        } else {
+            0.0
+        }
+
+        val stats = mapOf(
+            "totalScans" to totalScans,
+            "successfulScans" to successfulScans,
+            "averageProcessingTime" to averageProcessingTime,
+            "successRate" to successRate,
+            "framesPerSecond" to frameCount
+        )
+
+        result.success(stats)
     }
 
-    override fun onDetachedFromActivity() {
-        // Cleanup
-        cameraExecutor.shutdown()
-        preview?.unbindAll()
+    private fun dispose(result: MethodChannel.Result) {
+        cleanup()
+        result.success(true)
+    }
+
+    private fun cleanup() {
+        scanningEnabled = false
+        cameraProvider?.unbindAll()
+        cameraExecutor?.shutdown()
+        backgroundThread?.quitSafely()
+        backgroundHandler = null
+        barcodeScanner?.close()
+
+        // Reset statistics
+        totalScans = 0
+        successfulScans = 0
+        processingTimes.clear()
+        frameCount = 0
+    }
+
+    private fun hasPermissions(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context!!,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestPermissions() {
+        activity?.let { act ->
+            ActivityCompat.requestPermissions(
+                act,
+                arrayOf(Manifest.permission.CAMERA),
+                PERMISSION_REQUEST_CODE
+            )
+        }
     }
 }

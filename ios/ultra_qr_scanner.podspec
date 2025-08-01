@@ -5,7 +5,7 @@
 Pod::Spec.new do |s|
   s.name             = 'ultra_qr_scanner'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter project.'
+  s.summary          = 'Ultra-fast QR code scanner with native performance optimization.'
   s.description      = <<-DESC
 A new Flutter project.
                        DESC

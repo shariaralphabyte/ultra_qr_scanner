@@ -2,328 +2,485 @@ import Flutter
 import UIKit
 import AVFoundation
 import Vision
+import VideoToolbox
 
-public class UltraQrScannerPlugin: NSObject, FlutterPlugin, AVCaptureMetadataOutputObjectsDelegate {
-    private var methodChannel: FlutterMethodChannel!
-    private var eventChannel: FlutterEventChannel!
+public class UltraQrScannerPlugin: NSObject, FlutterPlugin {
+
+    private var channel: FlutterMethodChannel?
+    private var scanChannel: FlutterEventChannel?
     private var eventSink: FlutterEventSink?
 
+    // Camera and scanning components
     private var captureSession: AVCaptureSession?
-    private var previewLayer: AVCaptureVideoPreviewLayer?
     private var videoOutput: AVCaptureVideoDataOutput?
-    private var backCamera: AVCaptureDevice?
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var device: AVCaptureDevice?
 
-    private var isScanning = false
-    private var isPrepared = false
-    private var frameSkipCounter = 0
-    private let processingQueue = DispatchQueue(label: "qr_processing", qos: .userInitiated)
+    // Performance optimization
+    private let processingQueue = DispatchQueue(label: "ultra_qr_scanner.processing", qos: .userInitiated)
+    private let sessionQueue = DispatchQueue(label: "ultra_qr_scanner.session", qos: .userInitiated)
 
-    private var currentCameraPosition: AVCaptureDevice.Position = .back
-    private var cameraInput: AVCaptureDeviceInput?
+    // Configuration
+    private var enableGpuAcceleration = true
+    private var optimizeForSpeed = true
+    private var scanningEnabled = false
+    private var continuousScanning = false
+
+    // Statistics
+    private var totalScans = 0
+    private var successfulScans = 0
+    private var processingTimes: [Double] = []
+    private var frameCount = 0
+    private var lastFrameTime = CFAbsoluteTimeGetCurrent()
+
+    // Vision requests
+    private lazy var barcodeDetectionRequest: VNDetectBarcodesRequest = {
+        let request = VNDetectBarcodesRequest { [weak self] request, error in
+            self?.handleBarcodeDetection(request: request, error: error)
+        }
+
+        // Optimize for speed
+        request.revision = VNDetectBarcodesRequestRevision1
+
+        // Focus on QR codes for maximum performance
+        request.symbologies = [.qr]
+
+        return request
+    }()
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = UltraQrScannerPlugin()
 
-        instance.methodChannel = FlutterMethodChannel(
-            name: "ultra_qr_scanner",
-            binaryMessenger: registrar.messenger()
-        )
+        let channel = FlutterMethodChannel(name: "ultra_qr_scanner", binaryMessenger: registrar.messenger())
+        let scanChannel = FlutterEventChannel(name: "ultra_qr_scanner/scan", binaryMessenger: registrar.messenger())
 
-        instance.eventChannel = FlutterEventChannel(
-            name: "ultra_qr_scanner_events",
-            binaryMessenger: registrar.messenger()
-        )
+        instance.channel = channel
+        instance.scanChannel = scanChannel
 
-        registrar.addMethodCallDelegate(instance, channel: instance.methodChannel)
-        instance.eventChannel.setStreamHandler(instance)
+        registrar.addMethodCallDelegate(instance, channel: channel)
+        scanChannel.setStreamHandler(instance)
+
+        // Register native view factory
+        let factory = ScannerViewFactory(messenger: registrar.messenger())
+        registrar.register(factory, withId: "ultra_qr_scanner_view")
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
-        case "prepareScanner":
-            prepareScanner(result: result)
-        case "scanOnce":
-            scanOnce(result: result)
-        case "startScanStream":
-            startScanStream(result: result)
-        case "stopScanner":
-            stopScanner(result: result)
-        case "toggleFlash":
-            let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
-            toggleFlash(enabled: enabled, result: result)
-        case "pauseDetection":
-            pauseDetection(result: result)
-        case "resumeDetection":
-            resumeDetection(result: result)
-        case "requestPermissions":
-            requestPermissions(result: result)
-        case "switchCamera":
-            let position = (call.arguments as? [String: Any])?["position"] as? String ?? "back"
-            switchCamera(position: position, result: result)
+        case "initialize":
+            initialize(call: call, result: result)
+        case "startScanning":
+            startScanning(result: result)
+        case "stopScanning":
+            stopScanning(result: result)
+        case "toggleTorch":
+            toggleTorch(result: result)
+        case "hasTorch":
+            hasTorch(result: result)
+        case "focusAt":
+            focusAt(call: call, result: result)
+        case "getStats":
+            getStats(result: result)
+        case "dispose":
+            dispose(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
-    private func setupCamera(completion: @escaping (Bool) -> Void) {
+    private func initialize(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any] else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
+            return
+        }
+
+        // Check camera permissions
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        guard status == .authorized else {
+            if status == .notDetermined {
+                AVCaptureDevice.requestAccess(for: .video) { granted in
+                    DispatchQueue.main.async {
+                        result(granted)
+                    }
+                }
+                return
+            }
+            result(false)
+            return
+        }
+
+        // Get configuration
+        enableGpuAcceleration = args["enableGpuAcceleration"] as? Bool ?? true
+        optimizeForSpeed = args["optimizeForSpeed"] as? Bool ?? true
+
+        sessionQueue.async { [weak self] in
+            self?.setupCaptureSession()
+            DispatchQueue.main.async {
+                result(true)
+            }
+        }
+    }
+
+    private func setupCaptureSession() {
         captureSession = AVCaptureSession()
-        captureSession?.sessionPreset = .vga640x480
-        captureSession?.automaticallyConfiguresCaptureDeviceForWideColor = false
-        captureSession?.automaticallyConfiguresPreferredVideoSettings = false
 
-        guard let captureSession = captureSession else {
-            completion(false)
+        guard let captureSession = captureSession else { return }
+
+        // Configure session for optimal performance
+        if optimizeForSpeed {
+            captureSession.sessionPreset = .medium // Balance between quality and speed
+        } else {
+            captureSession.sessionPreset = .high
+        }
+
+        // Setup camera input
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
             return
         }
 
-        // Configure camera
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
-            completion(false)
-            return
-        }
+        self.device = device
 
         do {
-            // Remove existing input if any
-            if let existingInput = captureSession.inputs.first as? AVCaptureDeviceInput {
-                captureSession.removeInput(existingInput)
-            }
-
-            // Create new input
-            let input = try AVCaptureDeviceInput(device: camera)
-            cameraInput = input
-
-            // Add input
+            let input = try AVCaptureDeviceInput(device: device)
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
-            } else {
-                completion(false)
-                return
             }
-
-            // Configure metadata output for QR code detection
-            let metadataOutput = AVCaptureMetadataOutput()
-            if captureSession.canAddOutput(metadataOutput) {
-                captureSession.addOutput(metadataOutput)
-                metadataOutput.setMetadataObjectsDelegate(self, queue: processingQueue)
-                metadataOutput.metadataObjectTypes = [.qr]
-            } else {
-                completion(false)
-                return
-            }
-
-            // Set up preview layer
-            previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-            previewLayer?.videoGravity = .resizeAspectFill
-            previewLayer?.connection?.videoOrientation = .portrait
-
-            completion(true)
         } catch {
-            completion(false)
-        }
-    }
-
-    private func scanOnce(result: @escaping FlutterResult) {
-        guard isPrepared else {
-            let error = FlutterError(
-                code: "NOT_PREPARED",
-                message: "Scanner not prepared",
-                details: nil
-            )
-            result(error)
             return
         }
 
-        isScanning = true
-        startCameraSession()
+        // Setup video output
+        videoOutput = AVCaptureVideoDataOutput()
+        videoOutput?.setSampleBufferDelegate(self, queue: processingQueue)
 
-        // Handle single scan result
-        let originalSink = eventSink
-        eventSink = { [weak self] event in
-            originalSink?(event)
-            result(event)
-            self?.eventSink = originalSink
-            self?.stopCameraSession()
+        // Optimize video settings for performance
+        videoOutput?.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
+
+        // Discard late frames for real-time processing
+        videoOutput?.alwaysDiscardsLateVideoFrames = true
+
+        if let videoOutput = videoOutput, captureSession.canAddOutput(videoOutput) {
+            captureSession.addOutput(videoOutput)
+        }
+
+        // Configure camera settings for optimal scanning
+        configureCameraForScanning()
+    }
+
+    private func configureCameraForScanning() {
+        guard let device = device else { return }
+
+        do {
+            try device.lockForConfiguration()
+
+            // Set focus mode for fast autofocus
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+
+            // Set exposure mode
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+
+            // Enable low light boost if available
+            if device.isLowLightBoostSupported {
+                device.automaticallyEnablesLowLightBoostWhenAvailable = true
+            }
+
+            // Set frame rate for optimal performance
+            let frameRate = optimizeForSpeed ? 30.0 : 60.0
+            device.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: Int32(frameRate))
+            device.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(frameRate))
+
+            device.unlockForConfiguration()
+        } catch {
+            // Handle configuration error
         }
     }
 
-    private func startScanStream(result: @escaping FlutterResult) {
-        guard isPrepared else {
-            result(FlutterError(code: "NOT_PREPARED", message: "Scanner not prepared", details: nil))
-            return
+    private func startScanning(result: @escaping FlutterResult) {
+        sessionQueue.async { [weak self] in
+            guard let self = self, let captureSession = self.captureSession else {
+                DispatchQueue.main.async {
+                    result(false)
+                }
+                return
+            }
+
+            self.scanningEnabled = true
+
+            if !captureSession.isRunning {
+                captureSession.startRunning()
+            }
+
+            DispatchQueue.main.async {
+                result(true)
+            }
         }
-
-        isScanning = true
-        startCameraSession()
-        result(nil)
     }
 
-    private func startCameraSession() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.captureSession?.startRunning()
+    private func stopScanning(result: @escaping FlutterResult) {
+        sessionQueue.async { [weak self] in
+            guard let self = self else {
+                DispatchQueue.main.async {
+                    result(false)
+                }
+                return
+            }
+
+            self.scanningEnabled = false
+            self.captureSession?.stopRunning()
+
+            DispatchQueue.main.async {
+                result(true)
+            }
         }
     }
 
-    private func stopScanner(result: @escaping FlutterResult) {
-        isScanning = false
-        stopCameraSession()
-        result(nil)
-    }
-
-    private func stopCameraSession() {
-        captureSession?.stopRunning()
-    }
-
-    private func toggleFlash(enabled: Bool, result: @escaping FlutterResult) {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              device.hasTorch else {
-            result(FlutterError(code: "NO_FLASH", message: "Flash not available", details: nil))
+    private func toggleTorch(result: @escaping FlutterResult) {
+        guard let device = device, device.hasTorch else {
+            result(false)
             return
         }
 
         do {
             try device.lockForConfiguration()
-            device.torchMode = enabled ? .on : .off
-            device.unlockForConfiguration()
-            result(nil)
+
+            if device.torchMode == .off {
+                try device.setTorchModeOn(level: 1.0)
+                device.unlockForConfiguration()
+                result(true)
+            } else {
+                device.torchMode = .off
+                device.unlockForConfiguration()
+                result(false)
+            }
         } catch {
-            result(FlutterError(code: "FLASH_ERROR", message: "Failed to toggle flash", details: error.localizedDescription))
+            device.unlockForConfiguration()
+            result(false)
         }
     }
 
-    private func pauseDetection(result: @escaping FlutterResult) {
-        isScanning = false
-        result(nil)
+    private func hasTorch(result: @escaping FlutterResult) {
+        result(device?.hasTorch ?? false)
     }
 
-    private func resumeDetection(result: @escaping FlutterResult) {
-        isScanning = true
-        result(nil)
-    }
-
-    private func prepareScanner(result: @escaping FlutterResult) {
-        guard !isPrepared else {
-            result(nil)
+    private func focusAt(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let x = args["x"] as? Double,
+              let y = args["y"] as? Double,
+              let device = device else {
+            result(false)
             return
         }
 
-        // Check permissions first
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            break // Already authorized
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async {
-                    if !granted {
-                        result(FlutterError(code: "PERMISSION_DENIED",
-                                           message: "Camera permission denied",
-                                           details: nil))
-                        return
-                    }
-                    self.prepareCamera(result: result)
-                }
+        do {
+            try device.lockForConfiguration()
+
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = CGPoint(x: x, y: y)
+                device.focusMode = .autoFocus
             }
-            return
-        case .denied, .restricted:
-            result(FlutterError(code: "PERMISSION_DENIED",
-                               message: "Camera permission denied",
-                               details: nil))
-            return
-        @unknown default:
-            result(FlutterError(code: "PERMISSION_ERROR",
-                               message: "Unknown authorization status",
-                               details: nil))
+
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = CGPoint(x: x, y: y)
+                device.exposureMode = .autoExpose
+            }
+
+            device.unlockForConfiguration()
+            result(true)
+        } catch {
+            device.unlockForConfiguration()
+            result(false)
+        }
+    }
+
+    private func getStats(result: @escaping FlutterResult) {
+        let averageProcessingTime = processingTimes.isEmpty ? 0.0 : processingTimes.reduce(0, +) / Double(processingTimes.count)
+        let successRate = totalScans > 0 ? (Double(successfulScans) / Double(totalScans)) * 100 : 0.0
+
+        let stats: [String: Any] = [
+            "totalScans": totalScans,
+            "successfulScans": successfulScans,
+            "averageProcessingTime": averageProcessingTime,
+            "successRate": successRate,
+            "framesPerSecond": frameCount
+        ]
+
+        result(stats)
+    }
+
+    private func dispose(result: @escaping FlutterResult) {
+        cleanup()
+        result(true)
+    }
+
+    private func cleanup() {
+        scanningEnabled = false
+        captureSession?.stopRunning()
+        captureSession = nil
+        videoOutput = nil
+        previewLayer = nil
+        device = nil
+
+        // Reset statistics
+        totalScans = 0
+        successfulScans = 0
+        processingTimes.removeAll()
+        frameCount = 0
+    }
+
+    private func handleBarcodeDetection(request: VNRequest, error: Error?) {
+        guard scanningEnabled else { return }
+
+        let processingEndTime = CFAbsoluteTimeGetCurrent()
+        let processingTime = (processingEndTime - lastFrameTime) * 1000 // Convert to ms
+
+        guard let observations = request.results as? [VNBarcodeObservation],
+              let firstObservation = observations.first,
+              let payload = firstObservation.payloadStringValue else {
             return
         }
 
-        prepareCamera(result: result)
-    }
+        successfulScans += 1
 
-    private func prepareCamera(result: @escaping FlutterResult) {
-        processingQueue.async { [weak self] in
-            self?.setupCamera { success in
-                DispatchQueue.main.async {
-                    if success {
-                        self?.isPrepared = true
-                        result(nil)
-                    } else {
-                        result(FlutterError(code: "PREPARE_ERROR", message: "Failed to prepare camera", details: nil))
-                    }
-                }
+        // Update processing times buffer
+        processingTimes.append(processingTime)
+        if processingTimes.count > 100 {
+            processingTimes.removeFirst()
+        }
+
+        // Convert corner points
+        let corners = firstObservation.topLeft != CGPoint.zero ? [
+            ["x": firstObservation.topLeft.x, "y": firstObservation.topLeft.y],
+            ["x": firstObservation.topRight.x, "y": firstObservation.topRight.y],
+            ["x": firstObservation.bottomRight.x, "y": firstObservation.bottomRight.y],
+            ["x": firstObservation.bottomLeft.x, "y": firstObservation.bottomLeft.y]
+        ] : []
+
+        let result: [String: Any] = [
+            "data": payload,
+            "format": getFormatName(firstObservation.symbology),
+            "corners": corners,
+            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+            "confidence": firstObservation.confidence,
+            "processingTimeMs": Int(processingTime)
+        ]
+
+        DispatchQueue.main.async { [weak self] in
+            self?.eventSink?(result)
+
+            if !(self?.continuousScanning ?? false) {
+                self?.scanningEnabled = false
             }
         }
     }
 
-    private func requestPermissions(result: @escaping FlutterResult) {
-        AVCaptureDevice.requestAccess(for: .video) { granted in
-            DispatchQueue.main.async {
-                if !granted {
-                    result(FlutterError(code: "PERMISSION_DENIED",
-                                       message: "Camera permission denied",
-                                       details: nil))
-                    return
-                }
-                result(granted)
-            }
+    private func getFormatName(_ symbology: VNBarcodeSymbology) -> String {
+        switch symbology {
+        case .qr:
+            return "qr"
+        case .dataMatrix:
+            return "dataMatrix"
+        case .code128:
+            return "code128"
+        case .code39:
+            return "code39"
+        case .code93:
+            return "code93"
+        case .ean8:
+            return "ean8"
+        case .ean13:
+            return "ean13"
+        case .upce:
+            return "upce"
+        case .pdf417:
+            return "pdf417"
+        case .aztec:
+            return "aztec"
+        default:
+            return "unknown"
         }
     }
+}
 
-    private func switchCamera(position: String, result: @escaping FlutterResult) {
-        guard let newPosition = AVCaptureDevice.Position(rawValue: position) else {
-            result(FlutterError(code: "INVALID_CAMERA", message: "Invalid camera position", details: nil))
-            return
-        }
+// MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+extension UltraQrScannerPlugin: AVCaptureVideoDataOutputSampleBufferDelegate {
 
-        currentCameraPosition = newPosition
-        setupCamera { success in
-            result(success)
-        }
-    }
+    public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard scanningEnabled else { return }
 
-    private func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if !isScanning {
-            return
-        }
+        totalScans += 1
+        frameCount += 1
 
-        // Frame throttling - process every 3rd frame
-        if frameSkipCounter.compareAndSet(false, true) {
-            frameSkipCounter.set(false)
-            return
+        // Calculate FPS
+        let currentTime = CFAbsoluteTimeGetCurrent()
+        if currentTime - lastFrameTime >= 1.0 {
+            lastFrameTime = currentTime
+            frameCount = 0
         }
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext(options: nil)
-        
+        let imageRequestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+
         do {
-            // Create Vision request
-            let request = VNDetectBarcodesRequest { [weak self] request, error in
-                guard let self = self, self.isScanning else { return }
-
-                if let results = request.results as? [VNBarcodeObservation],
-                   let firstBarcode = results.first,
-                   let qrValue = firstBarcode.payloadStringValue {
-                    
-                    DispatchQueue.main.async {
-                        self.isScanning = false
-                        self.eventSink?(qrValue)
-                        self.stopCameraInternal()
-                    }
-                }
-            }
-
-            try context.perform([request], on: ciImage)
+            try imageRequestHandler.perform([barcodeDetectionRequest])
         } catch {
-            print("Error processing frame: \(error)")
+            // Handle processing error
         }
     }
+}
 
-    private func stopCameraInternal() {
-        captureSession?.stopRunning()
-    }
+// MARK: - FlutterStreamHandler
+extension UltraQrScannerPlugin: FlutterStreamHandler {
 
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
+
+        if let args = arguments as? [String: Any] {
+            continuousScanning = args["continuous"] as? Bool ?? false
+
+            // Update barcode types based on formats
+            if let formats = args["formats"] as? [String] {
+                var symbologies: [VNBarcodeSymbology] = []
+
+                for format in formats {
+                    switch format {
+                    case "qr":
+                        symbologies.append(.qr)
+                    case "dataMatrix":
+                        symbologies.append(.dataMatrix)
+                    case "code128":
+                        symbologies.append(.code128)
+                    case "code39":
+                        symbologies.append(.code39)
+                    case "code93":
+                        symbologies.append(.code93)
+                    case "ean8":
+                        symbologies.append(.ean8)
+                    case "ean13":
+                        symbologies.append(.ean13)
+                    case "upce":
+                        symbologies.append(.upce)
+                    case "pdf417":
+                        symbologies.append(.pdf417)
+                    case "aztec":
+                        symbologies.append(.aztec)
+                    default:
+                        break
+                    }
+                }
+
+                if !symbologies.isEmpty {
+                    barcodeDetectionRequest.symbologies = symbologies
+                }
+            }
+        }
+
         return nil
     }
 
