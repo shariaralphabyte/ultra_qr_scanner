@@ -5,50 +5,95 @@ import 'package:mockito/annotations.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
 import 'ultra_qr_scanner_test.mocks.dart';
 
-@GenerateMocks([MethodChannel, EventChannel])
+@GenerateMocks([MethodChannel])
 void main() {
   late MockMethodChannel mockMethodChannel;
-  late MockEventChannel mockEventChannel;
   late UltraQrScanner scanner;
 
   setUp(() {
     mockMethodChannel = MockMethodChannel();
-    mockEventChannel = MockEventChannel();
-    scanner = UltraQrScanner(
-      methodChannel: mockMethodChannel,
-      eventChannel: mockEventChannel,
-    );
-  });
-
-  test('prepareScanner should prepare scanner', () async {
-    when(mockMethodChannel.invokeMethod('prepareScanner'))
+    MethodChannel.channelName = null; // Reset channel name
+    MethodChannel.channelName = 'ultra_qr_scanner';
+    EventChannel.channelName = 'ultra_qr_scanner_events';
+    
+    // Mock the channel methods
+    when(mockMethodChannel.invokeMethod('initialize'))
         .thenAnswer((_) async => null);
-
-    await scanner.prepareScanner();
-    expect(scanner.isPrepared, isTrue);
-
-    verify(mockMethodChannel.invokeMethod('prepareScanner')).called(1);
-  });
-
-  test('scanOnce should scan QR code', () async {
-    // Prepare scanner first
-    when(mockMethodChannel.invokeMethod('prepareScanner'))
+    when(mockMethodChannel.invokeMethod('startScanning'))
         .thenAnswer((_) async => null);
-    await scanner.prepareScanner();
-
-    const testCode = 'test-qr-code';
-    when(mockMethodChannel.invokeMethod('scanOnce'))
-        .thenAnswer((_) async => testCode);
-
-    final result = await scanner.scanOnce();
-    expect(result, equals(testCode));
-
-    verify(mockMethodChannel.invokeMethod('scanOnce')).called(1);
+    when(mockMethodChannel.invokeMethod('stopScanning'))
+        .thenAnswer((_) async => null);
+    
+    scanner = UltraQrScanner();
   });
 
-  test('startScanStream should start scanning stream', () async {
-    // Prepare scanner first
-    when(mockMethodChannel.invokeMethod('prepareScanner'))
+  test('initialize should initialize scanner', () async {
+    await scanner.initialize();
+    verify(mockMethodChannel.invokeMethod('initialize')).called(1);
+  });
+
+  test('startScanning should start scanning', () async {
+    // Initialize first
+    await scanner.initialize();
+    
+    await scanner.startScanning();
+    expect(scanner._isScanning, isTrue);
+    verify(mockMethodChannel.invokeMethod('startScanning')).called(1);
+  });
+
+  test('stopScanning should stop scanning', () async {
+    // Initialize and start scanning first
+    await scanner.initialize();
+    await scanner.startScanning();
+    
+    await scanner.stopScanning();
+    expect(scanner._isScanning, isFalse);
+    verify(mockMethodChannel.invokeMethod('stopScanning')).called(1);
+  });
+
+  test('onCodeDetected should stream QR codes', () async {
+    // Initialize first
+    await scanner.initialize();
+    
+    // Mock event channel stream
+    final streamController = StreamController<String?>();
+    when(mockMethodChannel.invokeMethod('startScanning'))
+        .thenAnswer((_) async {
+          streamController.add('test-code-1');
+          streamController.add('test-code-2');
+          streamController.close();
+        });
+    
+    final codes = await scanner.onCodeDetected.take(2).toList();
+    expect(codes, equals(['test-code-1', 'test-code-2']));
+  });
+
+  test('initialize should throw QrScannerException on error', () async {
+    when(mockMethodChannel.invokeMethod('initialize'))
+        .thenThrow(PlatformException(code: 'ERROR', message: 'Test error'));
+    
+    expect(scanner.initialize(), throwsA(isA<QrScannerException>()));
+  });
+
+  test('startScanning should throw QrScannerException on error', () async {
+    // Initialize first
+    await scanner.initialize();
+    
+    when(mockMethodChannel.invokeMethod('startScanning'))
+        .thenThrow(PlatformException(code: 'ERROR', message: 'Test error'));
+    
+    expect(scanner.startScanning(), throwsA(isA<QrScannerException>()));
+  });
+
+  test('stopScanning should throw QrScannerException on error', () async {
+    // Initialize first
+    await scanner.initialize();
+    
+    when(mockMethodChannel.invokeMethod('stopScanning'))
+        .thenThrow(PlatformException(code: 'ERROR', message: 'Test error'));
+    
+    expect(scanner.stopScanning(), throwsA(isA<QrScannerException>()));
+  });
         .thenAnswer((_) async => null);
     await scanner.prepareScanner();
 

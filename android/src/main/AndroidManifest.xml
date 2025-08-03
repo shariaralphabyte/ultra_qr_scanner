@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="com.shariar99.ultra_qr_scanner">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.shariar99.ultra_qr_scanner">
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus" />
     
     <application
-        android:label="ultra_qr_scanner_example"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        tools:replace="android:icon">
         <activity
             android:name=".MainActivity"
             android:exported="true"
