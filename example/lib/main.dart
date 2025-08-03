@@ -11,129 +11,68 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ultra QR Scanner Example',
+      title: 'Ultra QR Scanner',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Ultra QR Scanner Example'),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
+  const MyHomePage({super.key});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final TextEditingController _qrCodeController = TextEditingController();
+  final UltraQrScanner _scanner = UltraQrScanner();
   bool _isScanning = false;
-  bool _isFlashOn = false;
-  String _currentCamera = 'back';
-  late UltraQrScanner _scanner;
-  bool _hasPermission = false;
+  String? _lastScannedCode;
 
   @override
   void initState() {
     super.initState();
-    _qrCodeController.addListener(() {
-      if (_qrCodeController.text.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Scanned: ${_qrCodeController.text}')),
-        );
-      }
-    });
     _initializeScanner();
   }
 
   Future<void> _initializeScanner() async {
     try {
-      _scanner = UltraQrScanner(
-        methodChannel: MethodChannel('ultra_qr_scanner'),
-        eventChannel: EventChannel('ultra_qr_scanner_events'),
-      );
-      _hasPermission = await _scanner.requestPermissions();
-      if (_hasPermission) {
-        await _scanner.prepareScanner();
-      }
-      setState(() {});
+      await _scanner.initialize();
+      _scanner.onCodeDetected.listen((code) {
+        if (code != null) {
+          setState(() {
+            _lastScannedCode = code;
+          });
+        }
+      });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize scanner: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to initialize scanner: $e')),
+      );
     }
   }
 
-  @override
-  void dispose() {
-    _qrCodeController.dispose();
-    super.dispose();
-  }
-
-  void _onQRDetected(String qrCode) {
-    setState(() {
-      _qrCodeController.text = qrCode;
-    });
-  }
-
-  Future<void> _startScan() async {
-    if (!_hasPermission) return;
-
+  Future<void> _startScanning() async {
+    if (_isScanning) return;
     try {
+      await _scanner.startScanning();
       setState(() {
         _isScanning = true;
       });
-
-      final stream = _scanner.startScanStream();
-      stream.listen(
-        (qrCode) {
-          if (mounted) {
-            setState(() {
-              _isScanning = false;
-            });
-            _onQRDetected(qrCode);
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            setState(() {
-              _isScanning = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Scan error: $error')),
-            );
-          }
-        },
-        onDone: () {
-          if (mounted) {
-            setState(() {
-              _isScanning = false;
-            });
-          }
-        },
-      );
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isScanning = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start scan: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to start scanning: $e')),
+      );
     }
   }
 
-  Future<void> _stopScan() async {
+  Future<void> _stopScanning() async {
     if (!_isScanning) return;
     try {
-      await _scanner.stopScanner();
+      await UltraQrScanner().stopScanning();
       setState(() {
         _isScanning = false;
       });
@@ -150,7 +89,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (!_hasPermission) return;
 
     try {
-      await _scanner.toggleFlash(!_isFlashOn);
+      await UltraQrScanner().toggleFlash();
       setState(() {
         _isFlashOn = !_isFlashOn;
       });
@@ -167,7 +106,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (!_hasPermission) return;
 
     try {
-      await _scanner.switchCamera(_currentCamera == 'back' ? 'front' : 'back');
+      await UltraQrScanner().switchCamera();
       setState(() {
         _currentCamera = _currentCamera == 'back' ? 'front' : 'back';
       });
@@ -182,117 +121,49 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_hasPermission) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.title),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.camera_alt, size: 64, color: Colors.grey),
-              SizedBox(height: 16),
-              Text('Camera permission required'),
-              ElevatedButton.icon(
-                onPressed: _initializeScanner,
-                icon: Icon(Icons.refresh),
-                label: Text('Request Permission'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Center(
-                child: Text('Camera preview will be shown here'),
-              ),
-            ),
+        actions: [
+          IconButton(
+            icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
+            onPressed: _toggleFlash,
           ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _qrCodeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Scanned QR Code',
-                    border: OutlineInputBorder(),
-                    filled: true,
-                    fillColor: Colors.grey[100],
-                  ),
-                  readOnly: true,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: _isScanning ? _stopScan : _startScan,
-                      icon: Icon(_isScanning ? Icons.stop : Icons.qr_code_scanner_outlined),
-                      label: Text(_isScanning ? 'Stop Scan' : 'Start Scan'),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _toggleFlash,
-                      icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
-                      label: Text(_isFlashOn ? 'Flash On' : 'Flash Off'),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _switchCamera,
-                      icon: Icon(Icons.switch_camera),
-                      label: Text(_currentCamera == 'back' ? 'Front Camera' : 'Back Camera'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          IconButton(
+            icon: Icon(_currentCamera == 'back' ? Icons.camera_rear : Icons.camera_front),
+            onPressed: _switchCamera,
           ),
         ],
       ),
-    );
-  }
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              'Scan QR code to see results below',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: TextField(
+                controller: _qrCodeController,
+                decoration: const InputDecoration(
+                  labelText: 'Scanned QR Code',
+                  border: OutlineInputBorder(),
+                ),
+                readOnly: true,
+              ),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Future<void> _scanOnce() async {
-    try {
-      final result = await UltraQrScanner.scanOnce();
-      if (result != null) {
-        setState(() {
-          _lastScannedCode = result;
-        });
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Scan failed: $e')),
-      );
-    }
-  }
-
-  void _openContinuousScanner() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ContinuousScannerPage(
-          onQrDetected: (qrCode) {
-            setState(() {
-              _lastScannedCode = qrCode;
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          if (_isScanning) {
+            _stopScan();
+          } else {
+            _startScan();
+          }
             });
           },
         ),
