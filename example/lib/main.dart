@@ -49,9 +49,11 @@ class _MyHomePageState extends State<MyHomePage> {
         }
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to initialize scanner: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initialize scanner: $e')),
+        );
+      }
     }
   }
 
@@ -63,57 +65,25 @@ class _MyHomePageState extends State<MyHomePage> {
         _isScanning = true;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to start scanning: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start scanning: $e')),
+        );
+      }
     }
   }
 
   Future<void> _stopScanning() async {
     if (!_isScanning) return;
     try {
-      await UltraQrScanner().stopScanning();
+      await _scanner.stopScanning();
       setState(() {
         _isScanning = false;
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to stop scan: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _toggleFlash() async {
-    if (!_hasPermission) return;
-
-    try {
-      await UltraQrScanner().toggleFlash();
-      setState(() {
-        _isFlashOn = !_isFlashOn;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to toggle flash: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _switchCamera() async {
-    if (!_hasPermission) return;
-
-    try {
-      await UltraQrScanner().switchCamera();
-      setState(() {
-        _currentCamera = _currentCamera == 'back' ? 'front' : 'back';
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to switch camera: $e')),
+          SnackBar(content: Text('Failed to stop scanning: $e')),
         );
       }
     }
@@ -123,17 +93,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          IconButton(
-            icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
-            onPressed: _toggleFlash,
-          ),
-          IconButton(
-            icon: Icon(_currentCamera == 'back' ? Icons.camera_rear : Icons.camera_front),
-            onPressed: _switchCamera,
-          ),
-        ],
+        title: const Text('Ultra QR Scanner'),
       ),
       body: Center(
         child: Column(
@@ -145,62 +105,23 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: _qrCodeController,
-                decoration: const InputDecoration(
-                  labelText: 'Scanned QR Code',
-                  border: OutlineInputBorder(),
-                ),
-                readOnly: true,
+              child: Text(
+                _lastScannedCode ?? 'No QR code scanned yet',
+                style: const TextStyle(fontSize: 20),
               ),
             ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
+        onPressed: () async {
           if (_isScanning) {
-            _stopScan();
+            await _stopScanning();
           } else {
-            _startScan();
+            await _startScanning();
           }
-            });
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class ContinuousScannerPage extends StatelessWidget {
-  final Function(String) onQrDetected;
-
-  const ContinuousScannerPage({
-    Key? key,
-    required this.onQrDetected,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('QR Scanner'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      extendBodyBehindAppBar: true,
-      body: UltraQrScannerWidget(
-        onQrDetected: (qrCode) {
-          onQrDetected(qrCode);
-          Navigator.of(context).pop();
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Scanned: $qrCode'),
-              backgroundColor: Colors.green,
-            ),
-          );
         },
+        child: Icon(_isScanning ? Icons.stop : Icons.play_arrow),
       ),
     );
   }

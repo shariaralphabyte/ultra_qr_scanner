@@ -9,12 +9,7 @@
 
 🚀 **Ultra-fast startup** - Preload scanner during app initialization for instant access  
 ⚡ **Native performance** - CameraX (Android) + AVCapture (iOS) for maximum speed  
-🧠 **Smart processing** - Background threads + frame throttling for efficiency  
-🔋 **Battery efficient** - Process every 3rd frame, auto-stop on detection  
 📱 **Simple API** - Single scan or continuous stream modes  
-🔦 **Flash support** - Toggle flashlight when available  
-⏸️ **Pause/Resume** - Control detection without stopping camera  
-🎨 **Customizable UI** - Built-in widget with overlay support  
 🛡️ **Production ready** - Comprehensive error handling & memory management
 
 ## 🚀 Performance Optimizations
