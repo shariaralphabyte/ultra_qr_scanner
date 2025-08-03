@@ -45,7 +45,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         messenger = flutterPluginBinding.binaryMessenger
         context = flutterPluginBinding.applicationContext
-        
+
         val methodChannel = MethodChannel(messenger, "ultra_qr_scanner")
         methodChannel.setMethodCallHandler(this)
 
@@ -127,15 +127,15 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
         val enabled = call.argument<Boolean>("enabled") ?: false
         isFlashOn = enabled
-        
+
         try {
             val camera = cameraProvider.getCamera(cameraSelector)
             val characteristics = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
             val cameraId = characteristics.cameraIdList.firstOrNull { id ->
-                characteristics.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == 
-                if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) CameraMetadata.LENS_FACING_BACK else CameraMetadata.LENS_FACING_FRONT
+                characteristics.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) ==
+                        if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) CameraMetadata.LENS_FACING_BACK else CameraMetadata.LENS_FACING_FRONT
             }
-            
+
             if (cameraId == null || !characteristics.getCameraCharacteristics(cameraId).get(CameraCharacteristics.FLASH_INFO_AVAILABLE)!!) {
                 result.error("NO_FLASH", "Flash not available", null)
                 return

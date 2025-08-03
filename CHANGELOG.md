@@ -1,4 +1,10 @@
 # Changelog
+## 0.0.4
+* Updated to com.shariar99.ultra_qr_scanner package
+
+## 0.0.3
+* Fixed package name mismatch
+* Updated to com.shariar99.ultra_qr_scanner package
 
 ## 0.0.2
 * Initial release of ultra_qr_scanner

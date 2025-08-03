@@ -7,14 +7,14 @@ typedef QrCodeCallback = void Function(String? code);
 class UltraQrScanner {
   static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
   static const EventChannel _eventChannel = EventChannel('ultra_qr_scanner_events');
-  
+
   bool _isScanning = false;
   StreamController<String?>? _streamController;
 
   UltraQrScanner._();
-  
+
   static final UltraQrScanner _instance = UltraQrScanner._();
-  
+
   factory UltraQrScanner() => _instance;
 
   Stream<String?> get onCodeDetected {
@@ -38,7 +38,7 @@ class UltraQrScanner {
 
   Future<void> startScanning() async {
     if (_isScanning) return;
-    
+
     try {
       await _channel.invokeMethod('startScanning');
       _isScanning = true;
@@ -52,7 +52,7 @@ class UltraQrScanner {
 
   Future<void> stopScanning() async {
     if (!_isScanning) return;
-    
+
     try {
       await _channel.invokeMethod('stopScanning');
       _isScanning = false;
@@ -66,7 +66,7 @@ class UltraQrScanner {
 
   void _startListening() {
     _eventChannel.receiveBroadcastStream().listen(
-      (event) {
+          (event) {
         _streamController?.add(event as String?);
       },
       onError: (error) {
