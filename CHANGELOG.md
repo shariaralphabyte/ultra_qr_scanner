@@ -2,6 +2,7 @@
 
 ## 0.0.6
 * Updated to com.shariar99.ultra_qr_scanner package
+* change kt file
 
 ## 0.0.5
 * Updated to com.shariar99.ultra_qr_scanner package
