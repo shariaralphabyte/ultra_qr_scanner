@@ -1,4 +1,8 @@
 # Changelog
+## 0.0.5
+* Updated to com.shariar99.ultra_qr_scanner package
+
+
 ## 0.0.4
 * Updated to com.shariar99.ultra_qr_scanner package
 
