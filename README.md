@@ -9,11 +9,13 @@
 🚀 **Ultra-fast startup** - Preload scanner during app initialization for instant access  
 ⚡ **Native performance** - CameraX (Android) + AVCapture (iOS) with platform views  
 📸 **Live camera preview** - Real-time camera feed with customizable overlay  
+🤖 **Auto-start scanning** - Optional automatic scanning when widget appears  
+👆 **Manual controls** - User-controlled start/stop with customizable UI  
 📱 **Simple API** - Single scan or continuous stream modes  
 🔦 **Flash control** - Toggle flashlight on supported devices  
 📷 **Camera switching** - Front/back camera support  
 🛡️ **Production ready** - Comprehensive error handling & memory management  
-🎨 **Customizable UI** - Custom overlays and scanning frames
+🎨 **Customizable UI** - Custom overlays, buttons, and scanning frames
 
 ## 🚀 Performance Optimizations
 
@@ -23,6 +25,7 @@
 | **Platform Views** | Native camera preview rendering | Seamless integration with Flutter UI |
 | **ML Frameworks** | MLKit Barcode Scanning (Android), Vision API (iOS) | Optimized QR detection |
 | **Threading** | Background processing with main thread UI updates | Non-blocking UI performance |
+| **Auto-start Mode** | Begin scanning immediately when widget appears | Zero user interaction needed |
 | **Auto-stop** | Immediate camera shutdown after detection | Zero waste of resources |
 | **Preloading** | Initialize during app startup | < 50ms to first scan |
 | **Memory Management** | Proper cleanup and lifecycle handling | Leak-free operation |
@@ -32,6 +35,7 @@
 | Metric | Target | Typical Result |
 |--------|--------|----------------|
 | Cold Start Time | < 300ms | ~200ms |
+| Auto-Start Time | < 100ms | ~50ms |
 | QR Detection Speed | < 100ms | ~50ms |
 | Memory Usage | < 50MB | ~35MB |
 | Battery Impact | Minimal | 2-3% per hour |
@@ -43,7 +47,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ultra_qr_scanner: ^2.0.2
+  ultra_qr_scanner: ^2.1.0
 ```
 
 ```bash
@@ -71,16 +75,16 @@ void main() async {
 }
 ```
 
-### 2. Using the Scanner Widget (Recommended)
+### 2. Auto-Start Scanner (Recommended for Quick Scanning)
 
 ```dart
 import 'package:ultra_qr_scanner/ultra_qr_scanner_widget.dart';
 
-class QRScannerPage extends StatelessWidget {
+class QuickScannerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('QR Scanner')),
+      appBar: AppBar(title: Text('Quick QR Scanner')),
       body: Container(
         width: 300,
         height: 300,
@@ -89,8 +93,10 @@ class QRScannerPage extends StatelessWidget {
             print('QR Code detected: $qrCode');
             Navigator.pop(context, qrCode);
           },
-          showFlashToggle: true,  // Show flash button
-          autoStop: true,         // Auto-stop after detection
+          showFlashToggle: true,       // Show flash button
+          autoStop: true,              // Auto-stop after detection
+          showStartStopButton: false,  // Hide manual controls
+          autoStart: true,             // Start scanning immediately
         ),
       ),
     );
@@ -98,7 +104,34 @@ class QRScannerPage extends StatelessWidget {
 }
 ```
 
-### 3. Programmatic Scanning (Alternative)
+### 3. Manual Scanner (Traditional User-Controlled)
+
+```dart
+class ManualScannerPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Manual QR Scanner')),
+      body: Container(
+        width: 300,
+        height: 300,
+        child: UltraQrScannerWidget(
+          onQrDetected: (qrCode) {
+            print('QR Code detected: $qrCode');
+            Navigator.pop(context, qrCode);
+          },
+          showFlashToggle: true,       // Show flash button
+          autoStop: true,              // Auto-stop after detection
+          showStartStopButton: true,   // Show start/stop button
+          autoStart: false,            // Wait for user to start
+        ),
+      ),
+    );
+  }
+}
+```
+
+### 4. Programmatic Scanning (Alternative)
 
 ```dart
 // Single scan
@@ -135,52 +168,130 @@ void stopScanning() {
 
 ## 🎨 Widget Customization
 
-### Basic Widget Configuration
+### Scanning Modes
+
+The widget supports two main scanning modes:
+
+#### 🤖 **Auto-Start Mode** (Instant Scanning)
+Perfect for quick scanning scenarios where you want immediate results:
 
 ```dart
 UltraQrScannerWidget(
   onQrDetected: (qrCode) => handleQRCode(qrCode),
-  showFlashToggle: true,    // Show/hide flash toggle button
-  autoStop: true,           // Stop scanning after first detection
-  overlay: null,            // Use default overlay or provide custom
+  autoStart: true,             // Start scanning immediately
+  showStartStopButton: false,  // Hide manual controls
+  autoStop: true,              // Stop after first detection
+  showFlashToggle: true,       // Optional flash control
 )
 ```
+
+#### 👆 **Manual Mode** (User-Controlled)
+Traditional scanning with user controls:
+
+```dart
+UltraQrScannerWidget(
+  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  autoStart: false,            // Wait for user action
+  showStartStopButton: true,   // Show start/stop button
+  autoStop: true,              // Stop after first detection
+  showFlashToggle: true,       // Optional flash control
+)
+```
+
+#### 🔄 **Hybrid Mode** (Best of Both)
+Auto-start with manual controls available:
+
+```dart
+UltraQrScannerWidget(
+  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  autoStart: true,             // Start immediately
+  showStartStopButton: true,   // But also show controls
+  autoStop: false,             // Continuous scanning
+  showFlashToggle: true,       // Flash control
+)
+```
+
+### Widget Configuration Options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `onQrDetected` | `Function(String)` | **Required** | Callback when QR code is detected |
+| `autoStart` | `bool` | `false` | Start scanning automatically when widget appears |
+| `showStartStopButton` | `bool` | `true` | Show/hide the start/stop scan button |
+| `autoStop` | `bool` | `true` | Stop scanning after first QR code detection |
+| `showFlashToggle` | `bool` | `false` | Show/hide flash/torch toggle button |
+| `overlay` | `Widget?` | `null` | Custom overlay widget (uses default if null) |
 
 ### Custom Overlay Example
 
 ```dart
 UltraQrScannerWidget(
   onQrDetected: (qrCode) => handleQRCode(qrCode),
+  autoStart: true,
+  showStartStopButton: false,
   overlay: Stack(
     children: [
       // Semi-transparent background
       Container(color: Colors.black54),
       
-      // Scanning frame
+      // Custom scanning frame
       Center(
         child: Container(
           width: 250,
           height: 250,
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.green, width: 3),
-            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.green, width: 4),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Stack(
+            children: [
+              // Corner decorations
+              ...buildCornerDecorations(),
+              
+              // Center dot
+              Center(
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
       
-      // Instructions
+      // Custom instructions
       Positioned(
-        top: 50,
+        top: 60,
         left: 0,
         right: 0,
-        child: Text(
-          'Position QR code within the frame',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        child: Column(
+          children: [
+            Icon(Icons.qr_code_scanner, color: Colors.white, size: 48),
+            SizedBox(height: 16),
+            Text(
+              'Scan QR Code',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Position the QR code within the frame',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+              ),
+            ),
+          ],
         ),
       ),
     ],
@@ -188,35 +299,40 @@ UltraQrScannerWidget(
 )
 ```
 
-### Full-Screen Scanner Example
+### Usage Scenarios
 
+#### 🚀 **Instant QR Scanner (No UI Friction)**
 ```dart
-class FullScreenScannerPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('QR Scanner'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      extendBodyBehindAppBar: true,
-      body: UltraQrScannerWidget(
-        onQrDetected: (qrCode) {
-          Navigator.pop(context, qrCode);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Scanned: $qrCode'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        },
-        showFlashToggle: true,
-        autoStop: true,
-      ),
-    );
-  }
-}
+// Perfect for: Payment apps, quick actions, URL scanning
+UltraQrScannerWidget(
+  onQrDetected: (code) => processPayment(code),
+  autoStart: true,
+  showStartStopButton: false,
+  autoStop: true,
+)
+```
+
+#### 📷 **Traditional Scanner (User Control)**
+```dart
+// Perfect for: Document scanning, batch operations, careful scanning
+UltraQrScannerWidget(
+  onQrDetected: (code) => addToList(code),
+  autoStart: false,
+  showStartStopButton: true,
+  autoStop: false, // Continuous scanning
+)
+```
+
+#### 🔍 **Full-Featured Scanner**
+```dart
+// Perfect for: Professional apps, feature-rich scanning
+UltraQrScannerWidget(
+  onQrDetected: (code) => handleCode(code),
+  autoStart: true,
+  showStartStopButton: true,
+  showFlashToggle: true,
+  autoStop: true,
+)
 ```
 
 ## 🔧 Advanced Features
@@ -327,6 +443,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   String? lastQRCode;
+  bool useAutoMode = true;
 
   @override
   Widget build(BuildContext context) {
@@ -334,6 +451,17 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: Text('Ultra QR Scanner'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(useAutoMode ? Icons.auto_awesome : Icons.touch_app),
+            onPressed: () {
+              setState(() {
+                useAutoMode = !useAutoMode;
+              });
+            },
+            tooltip: useAutoMode ? 'Switch to Manual' : 'Switch to Auto',
+          ),
+        ],
       ),
       body: Center(
         child: Padding(
@@ -341,11 +469,48 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Mode indicator
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: useAutoMode ? Colors.green.shade100 : Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: useAutoMode ? Colors.green : Colors.blue,
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      useAutoMode ? Icons.flash_auto : Icons.touch_app,
+                      color: useAutoMode ? Colors.green.shade700 : Colors.blue.shade700,
+                      size: 20,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      useAutoMode ? '🚀 AUTO MODE' : '👆 MANUAL MODE',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: useAutoMode ? Colors.green.shade700 : Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              SizedBox(height: 10),
+              
               Text(
-                'Scan QR code to see results below',
-                style: TextStyle(fontSize: 18),
+                useAutoMode 
+                    ? 'Scanning starts automatically when camera opens'
+                    : 'Tap the Start Scan button to begin scanning',
+                style: TextStyle(fontSize: 16),
                 textAlign: TextAlign.center,
               ),
+              
               SizedBox(height: 20),
               
               // Scanner Widget
@@ -371,12 +536,16 @@ class _HomePageState extends State<HomePage> {
                       SnackBar(
                         content: Text('Scanned: $code'),
                         backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
                         duration: Duration(seconds: 2),
                       ),
                     );
                   },
                   showFlashToggle: true,
                   autoStop: true,
+                  // Dynamic mode switching
+                  autoStart: useAutoMode,
+                  showStartStopButton: !useAutoMode,
                 ),
               ),
               
@@ -413,9 +582,9 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               
-              SizedBox(height: 30),
+              SizedBox(height: 20),
               
-              // Feature highlights
+              // Mode comparison
               Container(
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -426,20 +595,18 @@ class _HomePageState extends State<HomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '⚡ Features:',
+                      '💡 Scanning Modes:',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                       ),
                     ),
                     SizedBox(height: 8),
-                    Text('✅ Live camera preview'),
-                    Text('✅ Ultra-fast QR detection'),
-                    Text('✅ Flash/torch support'),
-                    Text('✅ Front/back camera switching'),
-                    Text('✅ Custom overlay support'),
-                    Text('✅ Auto-stop functionality'),
-                    Text('✅ Memory leak prevention'),
+                    Text('🚀 Auto Mode: Instant scanning, no buttons needed'),
+                    Text('👆 Manual Mode: User-controlled start/stop'),
+                    Text('⚡ Both modes: Auto-stop after detection'),
+                    Text('🔦 Flash control available in both modes'),
+                    Text('📷 Camera switching available in both modes'),
                   ],
                 ),
               ),
@@ -468,6 +635,9 @@ try {
     case 'NO_CAMERA':
       // Handle no camera available
       break;
+    case 'NOT_PREPARED':
+      // Scanner needs initialization
+      break;
     default:
       print('Scanner error: ${e.message}');
   }
@@ -479,7 +649,24 @@ try {
 
 ## 🚀 Performance Tips
 
-### 1. **Initialize Early (Optional but Recommended)**
+### 1. **Choose the Right Mode for Your Use Case**
+```dart
+// ✅ GOOD: Auto-mode for quick actions (payments, URLs)
+UltraQrScannerWidget(
+  autoStart: true,
+  showStartStopButton: false,
+  autoStop: true,
+)
+
+// ✅ GOOD: Manual mode for careful scanning (documents, batch)
+UltraQrScannerWidget(
+  autoStart: false, 
+  showStartStopButton: true,
+  autoStop: false,
+)
+```
+
+### 2. **Initialize Early (Optional but Recommended)**
 ```dart
 // ✅ GOOD: Initialize during app startup for faster access
 void main() async {
@@ -491,26 +678,16 @@ void main() async {
 }
 ```
 
-### 2. **Use Widget for Better Performance**
+### 3. **Use Widget for Better Performance**
 ```dart
 // ✅ RECOMMENDED: Use UltraQrScannerWidget
 UltraQrScannerWidget(
   onQrDetected: (code) => handleCode(code),
-  showFlashToggle: true,
+  autoStart: true,
 )
 
 // ❌ ALTERNATIVE: Programmatic scanning (requires more setup)
 final result = await UltraQrScanner.scanOnce();
-```
-
-### 3. **Proper Cleanup**
-```dart
-// Widget handles cleanup automatically, but for programmatic use:
-@override
-void dispose() {
-  UltraQrScanner.stopScanner();
-  super.dispose();
-}
 ```
 
 ## 🐛 Troubleshooting
@@ -522,20 +699,21 @@ void dispose() {
 - Request permissions before using scanner
 - Test on physical device (camera not available in simulators)
 
-**2. Black Screen / No Camera Preview**
-- Verify platform view is properly set up
-- Check if camera permissions are granted
+**2. Black Screen in Auto Mode**
+- Updated in v2.1.0 with better initialization timing
 - Ensure proper widget constraints (width/height)
+- Check console for platform view creation logs
 
 **3. QR Codes Not Detected**
 - Ensure good lighting conditions
 - Check if QR code is clearly visible and not damaged
 - Verify QR code format is supported
+- Try manual mode if auto-mode has issues
 
-**4. Memory Leaks**
-- Always dispose of scan subscriptions
-- Use the widget instead of programmatic scanning when possible
-- The widget handles lifecycle automatically
+**4. Controls Not Responding**
+- Verify widget configuration parameters
+- Check if scanner is properly initialized
+- Ensure proper error handling in callbacks
 
 ### Platform-Specific Issues
 
@@ -551,20 +729,21 @@ void dispose() {
 
 ## 📈 What's New
 
-### [2.0.0] - Latest
+### [2.1.0] - Latest
+- 🤖 **Auto-start scanning mode** - Begin scanning immediately when widget appears
+- 👆 **Enhanced manual controls** - Better user-controlled scanning experience
+- 🎛️ **Flexible UI options** - Show/hide start/stop button independently
+- ⏱️ **Improved initialization** - Better timing for auto-start mode
+- 🔧 **Better error handling** - More robust initialization and state management
+- 📱 **Enhanced examples** - Complete auto/manual mode demonstrations
+
+### [2.0.0] - Previous Major Release
 - 🎉 **Live camera preview** with native platform views
 - 📸 **Camera switching** between front/back cameras
 - 🔦 **Flash/torch control** for better scanning in low light
 - 🎨 **Customizable overlays** and scanning frames
 - 🧹 **Improved memory management** and lifecycle handling
 - 🚀 **Better performance** with native camera integration
-- 🛠️ **Enhanced error handling** with specific error codes
-- 📱 **Better widget architecture** with proper constraints
-
-### [1.x.x] - Previous
-- ⚡ Ultra-fast QR code scanning
-- 📱 Basic scanning functionality
-- 🛡️ Error handling and permissions
 
 ## 🤝 Contributing
 
