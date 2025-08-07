@@ -11,8 +11,8 @@ class UltraQrScannerWidget extends StatefulWidget {
   final Widget? overlay;
   final bool showFlashToggle;
   final bool autoStop;
-  final bool showStartStopButton; // New parameter to show/hide start/stop button
-  final bool autoStart; // New parameter to automatically start scanning
+  final bool showStartStopButton;
+  final bool autoStart;
 
   const UltraQrScannerWidget({
     super.key,
@@ -20,8 +20,8 @@ class UltraQrScannerWidget extends StatefulWidget {
     this.overlay,
     this.showFlashToggle = false,
     this.autoStop = true,
-    this.showStartStopButton = true, // Default: show button
-    this.autoStart = false, // Default: don't auto-start
+    this.showStartStopButton = true,
+    this.autoStart = false,
   });
 
   @override
@@ -35,6 +35,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   bool _isFlashOn = false;
   String _currentCamera = 'back';
   StreamSubscription<String>? _scanSubscription;
+  bool _isInitializing = true;
 
   @override
   void initState() {
@@ -44,19 +45,32 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
 
   Future<void> _initializeScanner() async {
     try {
+      setState(() {
+        _isInitializing = true;
+      });
+
       _hasPermission = await UltraQrScanner.requestPermissions();
       if (_hasPermission) {
         await UltraQrScanner.prepareScanner();
+
+        // Wait a moment for the platform view to be ready
+        await Future.delayed(const Duration(milliseconds: 300));
+
         setState(() {
           _isPrepared = true;
+          _isInitializing = false;
         });
 
-        // Auto-start scanning if enabled
+        // Auto-start scanning if enabled, with additional delay
         if (widget.autoStart) {
+          await Future.delayed(const Duration(milliseconds: 200));
           await _startScanning();
         }
       } else {
-        // Handle permission denied
+        setState(() {
+          _isInitializing = false;
+        });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Camera permission is required')),
@@ -64,6 +78,10 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         }
       }
     } catch (e) {
+      setState(() {
+        _isInitializing = false;
+      });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to initialize scanner: $e')),
@@ -165,11 +183,22 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   }
 
   Widget _buildCameraPreview() {
-    if (!_isPrepared || !_hasPermission) {
+    // Show loading state while initializing
+    if (_isInitializing || !_isPrepared || !_hasPermission) {
       return Container(
         color: Colors.black,
         child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Initializing camera...',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -181,18 +210,24 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         viewType: 'ultra_qr_camera_view',
         creationParams: const <String, dynamic>{},
         creationParamsCodec: const StandardMessageCodec(),
-        // Add layout direction and gesture recognizers
         layoutDirection: TextDirection.ltr,
         gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+        onPlatformViewCreated: (int id) {
+          // Platform view is created, camera should be visible now
+          print('Platform view created with id: $id');
+        },
       );
     } else if (Platform.isIOS) {
       platformView = UiKitView(
         viewType: 'ultra_qr_camera_view',
         creationParams: const <String, dynamic>{},
         creationParamsCodec: const StandardMessageCodec(),
-        // Add layout direction and gesture recognizers
         layoutDirection: TextDirection.ltr,
         gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+        onPlatformViewCreated: (int id) {
+          // Platform view is created, camera should be visible now
+          print('Platform view created with id: $id');
+        },
       );
     } else {
       return Container(
@@ -206,11 +241,11 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
       );
     }
 
-    // Wrap the platform view in proper constraints
     return ClipRect(
       child: Container(
         width: double.infinity,
         height: double.infinity,
+        color: Colors.black, // Ensure black background
         child: platformView,
       ),
     );
@@ -229,14 +264,14 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
               child: _buildCameraPreview(),
             ),
 
-            // Overlay
-            if (widget.overlay != null)
-              widget.overlay!
-            else
-              _buildDefaultOverlay(),
+            // Show overlay only when camera is ready
+            if (_isPrepared && _hasPermission && !_isInitializing) ...[
+              if (widget.overlay != null)
+                widget.overlay!
+              else
+                _buildDefaultOverlay(),
 
-            // Controls
-            if (_isPrepared && _hasPermission)
+              // Controls
               Positioned(
                 top: 16,
                 right: 16,
@@ -277,50 +312,51 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
                 ),
               ),
 
-            // Start/Stop button - only show if showStartStopButton is true
-            if (widget.showStartStopButton)
-              Positioned(
-                bottom: 16,
-                left: 16,
-                right: 16,
-                child: Center(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(25),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton.icon(
-                      onPressed: _isScanning ? _stopScanning : _startScanning,
-                      icon: Icon(
-                        _isScanning ? Icons.stop : Icons.play_arrow,
-                        size: 20,
+              // Start/Stop button - only show if showStartStopButton is true
+              if (widget.showStartStopButton)
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  right: 16,
+                  child: Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(25),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      label: Text(
-                        _isScanning ? 'Stop Scan' : 'Start Scan',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      child: ElevatedButton.icon(
+                        onPressed: _isScanning ? _stopScanning : _startScanning,
+                        icon: Icon(
+                          _isScanning ? Icons.stop : Icons.play_arrow,
+                          size: 20,
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isScanning ? Colors.red : Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
+                        label: Text(
+                          _isScanning ? 'Stop Scan' : 'Start Scan',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        elevation: 4,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isScanning ? Colors.red : Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          elevation: 4,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+            ],
           ],
         ),
       ),
@@ -347,42 +383,9 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
               ),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: _isScanning
-                ? Container(
-              margin: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.transparent),
-                borderRadius: BorderRadius.circular(13),
-              ),
-            )
-                : null,
           ),
         ),
 
-        // Instructions - adjust position based on whether start/stop button is shown
-        Positioned(
-          top: 40,
-          left: 16,
-          right: 16,
-          child: Text(
-            widget.autoStart || !widget.showStartStopButton
-                ? 'Position QR code within the frame'
-                : 'Tap Start Scan to begin',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              shadows: [
-                Shadow(
-                  color: Colors.black.withOpacity(0.8),
-                  offset: const Offset(1, 1),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-          ),
-        ),
 
         // Status indicator
         if (_isScanning)
