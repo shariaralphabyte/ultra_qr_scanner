@@ -1,5 +1,5 @@
 # Changelog
-## 2.0.0
+## 2.0.1
 * Release stable version for fine
 * Fixed all Android and iOS implementation issues
 * Updated Dart API to match documentation
