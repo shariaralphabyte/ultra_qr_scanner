@@ -1,6 +1,4 @@
-// lib/ultra_qr_scanner.dart
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'ultra_qr_scanner_platform_interface.dart';
 
 /// Ultra-fast QR code scanner for Flutter with native performance optimization
