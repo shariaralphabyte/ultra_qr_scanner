@@ -2,7 +2,7 @@ group = "com.shariar99.ultra_qr_scanner"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    ext.kotlin_version = "1.8.22"
+    val kotlinVersion = "1.8.22"
     repositories {
         google()
         mavenCentral()
@@ -10,7 +10,7 @@ buildscript {
 
     dependencies {
         classpath("com.android.tools.build:gradle:8.7.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
 }
 
@@ -22,9 +22,9 @@ allprojects {
 }
 
 plugins {
-    id 'com.android.library'
-    id 'kotlin-android'
-    id 'dev.flutter.flutter-gradle-plugin'
+    id("com.android.library")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
@@ -38,12 +38,12 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11
+        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     sourceSets {
-        main.java.srcDirs += "src/main/kotlin"
-        test.java.srcDirs += "src/test/kotlin"
+        getByName("main").java.srcDirs("src/main/kotlin")
+        getByName("test").java.srcDirs("src/test/kotlin")
     }
 
     defaultConfig {
@@ -66,9 +66,9 @@ android {
             useJUnitPlatform()
 
             testLogging {
-               events "passed", "skipped", "failed", "standardOut", "standardError"
-               outputs.upToDateWhen {false}
-               showStandardStreams = true
+                events("passed", "skipped", "failed", "standardOut", "standardError")
+                outputs.upToDateWhen { false }
+                showStandardStreams = true
             }
         }
     }
