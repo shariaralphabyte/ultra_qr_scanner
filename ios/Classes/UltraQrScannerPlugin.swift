@@ -7,7 +7,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private var channel: FlutterMethodChannel!
     private var eventChannel: FlutterEventChannel!
     private var eventSink: FlutterEventSink?
-    
+
     private var captureSession: AVCaptureSession?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -303,9 +303,11 @@ class CameraViewFactory: NSObject, FlutterPlatformViewFactory {
 }
 
 // MARK: - Platform View Implementation
+// MARK: - Platform View Implementation (FIXED VERSION)
 class CameraPlatformView: NSObject, FlutterPlatformView {
     private let containerView: UIView
     private let plugin: UltraQrScannerPlugin
+    private var previewLayer: AVCaptureVideoPreviewLayer?
 
     init(frame: CGRect, plugin: UltraQrScannerPlugin) {
         self.containerView = UIView(frame: frame)
@@ -313,18 +315,49 @@ class CameraPlatformView: NSObject, FlutterPlatformView {
         super.init()
 
         containerView.backgroundColor = UIColor.black
+        containerView.clipsToBounds = true
+
         setupPreviewLayer()
+
+        // Add observer to handle frame changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(orientationDidChange),
+            name: UIDevice.orientationDidChangeNotification,
+            object: nil
+        )
     }
 
     private func setupPreviewLayer() {
         if let previewLayer = plugin.createPreviewLayer() {
-            previewLayer.frame = containerView.bounds
+            self.previewLayer = previewLayer
+            updatePreviewLayerFrame()
             previewLayer.videoGravity = .resizeAspectFill
             containerView.layer.addSublayer(previewLayer)
         }
     }
 
+    @objc private func orientationDidChange() {
+        DispatchQueue.main.async { [weak self] in
+            self?.updatePreviewLayerFrame()
+        }
+    }
+
+    private func updatePreviewLayerFrame() {
+        guard let previewLayer = self.previewLayer else { return }
+
+        // Update frame to match container bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true) // Prevent animations
+        previewLayer.frame = containerView.bounds
+        CATransaction.commit()
+    }
+
     func view() -> UIView {
         return containerView
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
