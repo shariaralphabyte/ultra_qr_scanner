@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-
 import 'ultra_qr_scanner_platform_interface.dart';
 
 /// An implementation of [UltraQrScannerPlatform] that uses method channels.
@@ -8,6 +7,10 @@ class MethodChannelUltraQrScanner extends UltraQrScannerPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('ultra_qr_scanner');
+
+  /// The event channel used for continuous scanning stream.
+  @visibleForTesting
+  final eventChannel = const EventChannel('ultra_qr_scanner_events');
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -17,34 +20,63 @@ class MethodChannelUltraQrScanner extends UltraQrScannerPlatform {
 
   @override
   Future<bool> prepareScanner() async {
-    final result = await methodChannel.invokeMethod<bool>('prepareScanner');
-    return result ?? false;
+    try {
+      final result = await methodChannel.invokeMethod<bool>('prepareScanner');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
   }
 
   @override
   Future<String?> scanOnce() async {
-    final result = await methodChannel.invokeMethod<String?>('scanOnce');
-    return result;
+    try {
+      final result = await methodChannel.invokeMethod<String?>('scanOnce');
+      return result;
+    } catch (e) {
+      return null;
+    }
   }
 
   @override
   Future<void> stopScanner() async {
-    await methodChannel.invokeMethod<void>('stopScanner');
+    try {
+      await methodChannel.invokeMethod<void>('stopScanner');
+    } catch (e) {
+      // Handle error silently or throw custom exception
+    }
   }
 
   @override
   Future<void> toggleFlash(bool enabled) async {
-    await methodChannel.invokeMethod<void>('toggleFlash', {'enabled': enabled});
+    try {
+      await methodChannel.invokeMethod<void>('toggleFlash', {'enabled': enabled});
+    } catch (e) {
+      throw Exception('Failed to toggle flash: $e');
+    }
   }
 
   @override
   Future<void> switchCamera(String position) async {
-    await methodChannel.invokeMethod<void>('switchCamera', {'position': position});
+    try {
+      await methodChannel.invokeMethod<void>('switchCamera', {'position': position});
+    } catch (e) {
+      throw Exception('Failed to switch camera: $e');
+    }
   }
 
   @override
   Future<bool> requestPermissions() async {
-    final result = await methodChannel.invokeMethod<bool>('requestPermissions');
-    return result ?? false;
+    try {
+      final result = await methodChannel.invokeMethod<bool>('requestPermissions');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  Stream<String> scanStream() {
+    return eventChannel.receiveBroadcastStream().map((event) => event as String);
   }
 }

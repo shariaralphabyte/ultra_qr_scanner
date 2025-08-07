@@ -1,20 +1,17 @@
 // lib/ultra_qr_scanner.dart
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'ultra_qr_scanner_platform_interface.dart';
 
 /// Ultra-fast QR code scanner for Flutter with native performance optimization
 class UltraQrScanner {
-  static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
-  static const EventChannel _eventChannel = EventChannel('ultra_qr_scanner_events');
-
   static bool _isPrepared = false;
   static bool _isScanning = false;
 
   /// Request camera permissions
   static Future<bool> requestPermissions() async {
     try {
-      final result = await _channel.invokeMethod('requestPermissions');
-      return result as bool? ?? false;
+      return await UltraQrScannerPlatform.instance.requestPermissions();
     } catch (e) {
       return false;
     }
@@ -23,8 +20,15 @@ class UltraQrScanner {
   /// Prepare scanner for ultra-fast access
   static Future<void> prepareScanner() async {
     try {
-      await _channel.invokeMethod('prepareScanner');
-      _isPrepared = true;
+      final success = await UltraQrScannerPlatform.instance.prepareScanner();
+      if (success) {
+        _isPrepared = true;
+      } else {
+        throw UltraQrScannerException(
+          code: 'PREPARE_ERROR',
+          message: 'Failed to prepare scanner',
+        );
+      }
     } catch (e) {
       throw UltraQrScannerException(
         code: 'PREPARE_ERROR',
@@ -40,9 +44,11 @@ class UltraQrScanner {
     }
 
     try {
-      final result = await _channel.invokeMethod('scanOnce');
-      return result as String?;
+      _isScanning = true;
+      final result = await UltraQrScannerPlatform.instance.scanOnce();
+      return result;
     } catch (e) {
+      _isScanning = false;
       throw UltraQrScannerException(
         code: 'SCAN_ERROR',
         message: 'Failed to scan QR code: $e',
@@ -52,13 +58,20 @@ class UltraQrScanner {
 
   /// Start continuous scanning stream
   static Stream<String> scanStream() {
-    return _eventChannel.receiveBroadcastStream().map((event) => event as String);
+    try {
+      return UltraQrScannerPlatform.instance.scanStream();
+    } catch (e) {
+      throw UltraQrScannerException(
+        code: 'STREAM_ERROR',
+        message: 'Failed to start scan stream: $e',
+      );
+    }
   }
 
   /// Stop scanner and release resources
   static Future<void> stopScanner() async {
     try {
-      await _channel.invokeMethod('stopScanner');
+      await UltraQrScannerPlatform.instance.stopScanner();
       _isScanning = false;
     } catch (e) {
       throw UltraQrScannerException(
@@ -71,7 +84,7 @@ class UltraQrScanner {
   /// Toggle flash on/off
   static Future<void> toggleFlash(bool enabled) async {
     try {
-      await _channel.invokeMethod('toggleFlash', {'enabled': enabled});
+      await UltraQrScannerPlatform.instance.toggleFlash(enabled);
     } catch (e) {
       throw UltraQrScannerException(
         code: 'FLASH_ERROR',
@@ -83,12 +96,21 @@ class UltraQrScanner {
   /// Switch camera (front/back)
   static Future<void> switchCamera(String position) async {
     try {
-      await _channel.invokeMethod('switchCamera', {'position': position});
+      await UltraQrScannerPlatform.instance.switchCamera(position);
     } catch (e) {
       throw UltraQrScannerException(
         code: 'CAMERA_ERROR',
         message: 'Failed to switch camera: $e',
       );
+    }
+  }
+
+  /// Get platform version (for testing)
+  static Future<String?> getPlatformVersion() async {
+    try {
+      return await UltraQrScannerPlatform.instance.getPlatformVersion();
+    } catch (e) {
+      return null;
     }
   }
 

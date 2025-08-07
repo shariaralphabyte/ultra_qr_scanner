@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ultra_qr_scanner.dart';
@@ -70,7 +73,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
 
       // Start continuous scanning stream
       _scanSubscription = UltraQrScanner.scanStream().listen(
-        (qrCode) {
+            (qrCode) {
           if (mounted) {
             widget.onQrDetected(qrCode);
             if (widget.autoStop) {
@@ -152,110 +155,264 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
     }
   }
 
+  Widget _buildCameraPreview() {
+    if (!_isPrepared || !_hasPermission) {
+      return Container(
+        color: Colors.black,
+        child: const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
+    // Use platform view for Android, UiKitView for iOS
+    Widget platformView;
+    if (Platform.isAndroid) {
+      platformView = AndroidView(
+        viewType: 'ultra_qr_camera_view',
+        creationParams: const <String, dynamic>{},
+        creationParamsCodec: const StandardMessageCodec(),
+        // Add layout direction and gesture recognizers
+        layoutDirection: TextDirection.ltr,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      );
+    } else if (Platform.isIOS) {
+      platformView = UiKitView(
+        viewType: 'ultra_qr_camera_view',
+        creationParams: const <String, dynamic>{},
+        creationParamsCodec: const StandardMessageCodec(),
+        // Add layout direction and gesture recognizers
+        layoutDirection: TextDirection.ltr,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      );
+    } else {
+      return Container(
+        color: Colors.black,
+        child: const Center(
+          child: Text(
+            'Platform not supported',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    // Wrap the platform view in proper constraints
+    return ClipRect(
+      child: Container(
+        width: double.infinity,
+        height: double.infinity,
+        child: platformView,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
-          // Camera preview placeholder - in a real implementation this would be a platform view
-          Container(
-            color: Colors.black,
-            child: Center(
-              child: _isPrepared && _hasPermission
-                  ? const Text(
-                      'Camera Preview',
-                      style: TextStyle(color: Colors.white),
-                    )
-                  : const CircularProgressIndicator(),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
+            // Camera preview - positioned to fill the entire container
+            Positioned.fill(
+              child: _buildCameraPreview(),
             ),
-          ),
-          
-          // Overlay
-          if (widget.overlay != null)
-            widget.overlay!
-          else
-            _buildDefaultOverlay(),
-          
-          // Controls
-          if (_isPrepared && _hasPermission)
-            Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
+
+            // Overlay
+            if (widget.overlay != null)
+              widget.overlay!
+            else
+              _buildDefaultOverlay(),
+
+            // Controls
+            if (_isPrepared && _hasPermission)
+              Positioned(
+                top: 16,
+                right: 16,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (widget.showFlashToggle)
-                      IconButton(
-                        icon: Icon(
-                          _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                          color: Colors.white,
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(25),
                         ),
-                        onPressed: _toggleFlash,
+                        child: IconButton(
+                          icon: Icon(
+                            _isFlashOn ? Icons.flash_on : Icons.flash_off,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                          onPressed: _toggleFlash,
+                        ),
                       ),
-                    IconButton(
-                      icon: Icon(
-                        _currentCamera == 'back' ? Icons.camera_rear : Icons.camera_front,
-                        color: Colors.white,
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(25),
                       ),
-                      onPressed: _switchCamera,
+                      child: IconButton(
+                        icon: Icon(
+                          _currentCamera == 'back' ? Icons.camera_rear : Icons.camera_front,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                        onPressed: _switchCamera,
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          
-          // Start/Stop button
-          Positioned(
-            bottom: 16,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: ElevatedButton(
-                onPressed: _isScanning ? _stopScanning : _startScanning,
-                child: Text(_isScanning ? 'Stop' : 'Start Scan'),
+
+            // Start/Stop button
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: Center(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(25),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton.icon(
+                    onPressed: _isScanning ? _stopScanning : _startScanning,
+                    icon: Icon(
+                      _isScanning ? Icons.stop : Icons.play_arrow,
+                      size: 20,
+                    ),
+                    label: Text(
+                      _isScanning ? 'Stop Scan' : 'Start Scan',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isScanning ? Colors.red : Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 4,
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-  
+
   Widget _buildDefaultOverlay() {
     return Stack(
       children: [
         // Semi-transparent background
-        Container(color: Colors.black54),
-        
+        Container(
+          color: Colors.black.withOpacity(0.5),
+        ),
+
         // Scanning area cutout
         Center(
           child: Container(
-            width: 250,
-            height: 250,
+            width: 220,
+            height: 220,
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.green, width: 3),
+              border: Border.all(
+                color: _isScanning ? Colors.green : Colors.white,
+                width: 3,
+              ),
               borderRadius: BorderRadius.circular(16),
             ),
+            child: _isScanning
+                ? Container(
+              margin: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.transparent),
+                borderRadius: BorderRadius.circular(13),
+              ),
+            )
+                : null,
           ),
         ),
-        
+
         // Instructions
-        const Positioned(
-          bottom: 100,
-          left: 0,
-          right: 0,
+        Positioned(
+          top: 40,
+          left: 16,
+          right: 16,
           child: Text(
-            'Align QR code within the frame',
+            'Position QR code within the frame',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              shadows: [
+                Shadow(
+                  color: Colors.black.withOpacity(0.8),
+                  offset: const Offset(1, 1),
+                  blurRadius: 4,
+                ),
+              ],
             ),
           ),
         ),
+
+        // Status indicator
+        if (_isScanning)
+          Positioned(
+            bottom: 80,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.green.shade400),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Scanning...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

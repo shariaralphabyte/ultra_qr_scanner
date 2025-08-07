@@ -7,9 +7,13 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.os.Build
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.annotation.NonNull
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -31,6 +35,9 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.EventChannel.EventSink
 import io.flutter.plugin.common.EventChannel.StreamHandler
+import io.flutter.plugin.common.StandardMessageCodec
+import io.flutter.plugin.platform.PlatformView
+import io.flutter.plugin.platform.PlatformViewFactory
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -48,6 +55,9 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     private var lifecycleRegistry: LifecycleRegistry? = null
     private var camera: Camera? = null
 
+    // Add PreviewView for camera display
+    private var previewView: PreviewView? = null
+
     override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         messenger = binding.binaryMessenger
         context = binding.applicationContext
@@ -57,6 +67,12 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
         val eventChannel = EventChannel(messenger, "ultra_qr_scanner_events")
         eventChannel.setStreamHandler(this)
+
+        // Register platform view factory
+        binding.platformViewRegistry.registerViewFactory(
+            "ultra_qr_camera_view",
+            CameraViewFactory(this)
+        )
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         lifecycleRegistry = LifecycleRegistry(this)
@@ -71,6 +87,18 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry ?: throw IllegalStateException("LifecycleRegistry not initialized")
+
+    fun createCameraView(): PreviewView {
+        previewView = PreviewView(context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+        return previewView!!
+    }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
         when (call.method) {
@@ -104,13 +132,24 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                         .build()
                     barcodeScanner = BarcodeScanning.getClient(options)
 
+                    // Initialize preview
+                    preview = Preview.Builder().build()
+
+                    // Connect preview to PreviewView
+                    previewView?.let {
+                        preview?.setSurfaceProvider(it.surfaceProvider)
+                    }
+
                     // Initialize image analyzer
                     imageAnalyzer = ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { analyzer ->
                             analyzer.setAnalyzer(cameraExecutor) { image ->
-                                val inputImage = InputImage.fromMediaImage(image.image!!, image.imageInfo.rotationDegrees)
+                                val inputImage = InputImage.fromMediaImage(
+                                    image.image!!,
+                                    image.imageInfo.rotationDegrees
+                                )
                                 barcodeScanner?.process(inputImage)
                                     ?.addOnSuccessListener { barcodes ->
                                         for (barcode in barcodes) {
@@ -148,11 +187,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                 return
             }
 
-            // Initialize preview
-            preview = Preview.Builder()
-                .build()
-
-            // Bind use cases
+            // Bind use cases to lifecycle
             cameraProvider.unbindAll()
             camera = cameraProvider.bindToLifecycle(
                 this,
@@ -160,6 +195,11 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                 preview,
                 imageAnalyzer
             )
+
+            // Update preview view
+            previewView?.let {
+                preview?.setSurfaceProvider(it.surfaceProvider)
+            }
 
             isScanning = true
             result.success(true)
@@ -248,6 +288,12 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         // Start new camera with updated selector
         try {
             preview = Preview.Builder().build()
+
+            // Connect to preview view
+            previewView?.let {
+                preview?.setSurfaceProvider(it.surfaceProvider)
+            }
+
             imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
@@ -294,6 +340,27 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
+    private fun bindCameraUseCases() {
+        try {
+            if (::cameraProvider.isInitialized && isScanning) {
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(
+                    this,
+                    cameraSelector,
+                    preview,
+                    imageAnalyzer
+                )
+
+                // Update preview view
+                previewView?.let {
+                    preview?.setSurfaceProvider(it.surfaceProvider)
+                }
+            }
+        } catch (e: Exception) {
+            eventSink?.error("CAMERA_ERROR", "Failed to bind camera use cases", e.message)
+        }
+    }
+
     override fun onListen(arguments: Any?, events: EventSink?) {
         eventSink = events
     }
@@ -304,6 +371,10 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         lifecycleRegistry?.currentState = Lifecycle.State.RESUMED
+        // Restart camera if it was running
+        if (isScanning && ::cameraProvider.isInitialized) {
+            bindCameraUseCases()
+        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -312,11 +383,57 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         lifecycleRegistry?.currentState = Lifecycle.State.RESUMED
+        // Restart camera if it was running
+        if (isScanning && ::cameraProvider.isInitialized) {
+            bindCameraUseCases()
+        }
     }
 
     override fun onDetachedFromActivity() {
         lifecycleRegistry?.currentState = Lifecycle.State.CREATED
-        cameraProvider.unbindAll()
+        if (::cameraProvider.isInitialized) {
+            cameraProvider.unbindAll()
+        }
         camera = null
+    }
+}
+
+// Platform View Factory
+class CameraViewFactory(private val plugin: UltraQrScannerPlugin) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    override fun create(context: Context?, viewId: Int, args: Any?): PlatformView {
+        return CameraPlatformView(plugin, context!!, viewId, args)
+    }
+}
+
+// Platform View Implementation
+class CameraPlatformView(
+    private val plugin: UltraQrScannerPlugin,
+    context: Context,
+    viewId: Int,
+    args: Any?
+) : PlatformView {
+
+    private val frameLayout: FrameLayout = FrameLayout(context)
+    private val previewView: PreviewView = plugin.createCameraView()
+
+    init {
+        // Set up the preview view with proper layout parameters
+        val layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        previewView.layoutParams = layoutParams
+
+        // Set scale type to fill the view
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+
+        // Add the preview view to the frame layout
+        frameLayout.addView(previewView)
+    }
+
+    override fun getView(): View = frameLayout
+
+    override fun dispose() {
+        frameLayout.removeAllViews()
     }
 }

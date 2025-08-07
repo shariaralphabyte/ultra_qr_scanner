@@ -1,4 +1,9 @@
 # Changelog
+## 2.0.0
+* Release stable version for fine
+* Fixed all Android and iOS implementation issues
+* Updated Dart API to match documentation
+* Rewrote widget implementation
 
 ## 1.0.1
 * Fixed all Android and iOS implementation issues

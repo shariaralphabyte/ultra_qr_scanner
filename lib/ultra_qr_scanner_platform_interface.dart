@@ -1,5 +1,4 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-
 import 'ultra_qr_scanner_method_channel.dart';
 
 abstract class UltraQrScannerPlatform extends PlatformInterface {
@@ -49,5 +48,9 @@ abstract class UltraQrScannerPlatform extends PlatformInterface {
 
   Future<bool> requestPermissions() {
     throw UnimplementedError('requestPermissions() has not been implemented.');
+  }
+
+  Stream<String> scanStream() {
+    throw UnimplementedError('scanStream() has not been implemented.');
   }
 }

@@ -10,6 +10,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     
     private var captureSession: AVCaptureSession?
     private var videoOutput: AVCaptureVideoDataOutput?
+    private var previewLayer: AVCaptureVideoPreviewLayer?
     private var isScanning = false
     private var isPrepared = false
     private var visionRequestHandler: VNSequenceRequestHandler?
@@ -19,19 +20,23 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = UltraQrScannerPlugin()
-        
+
         instance.channel = FlutterMethodChannel(
             name: "ultra_qr_scanner",
             binaryMessenger: registrar.messenger()
         )
-        
+
         instance.eventChannel = FlutterEventChannel(
             name: "ultra_qr_scanner_events",
             binaryMessenger: registrar.messenger()
         )
-        
+
         registrar.addMethodCallDelegate(instance, channel: instance.channel)
         instance.eventChannel.setStreamHandler(instance)
+
+        // Register platform view factory
+        let factory = CameraViewFactory(plugin: instance)
+        registrar.register(factory, withId: "ultra_qr_camera_view")
     }
 
     public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
@@ -70,17 +75,17 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(FlutterError(code: "PERMISSION_DENIED", message: "Camera permission is required", details: nil))
             return
         }
-        
+
         setupCamera(result: result)
     }
-    
+
     private func requestPermissions(result: @escaping FlutterResult) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         if status == .authorized {
             result(true)
             return
         }
-        
+
         if status == .notDetermined {
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
@@ -97,7 +102,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if let session = captureSession, session.isRunning {
             session.stopRunning()
         }
-        
+
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .vga640x480
 
@@ -111,7 +116,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(FlutterError(code: "NO_CAMERA", message: "No camera available", details: nil))
             return
         }
-        
+
         torchDevice = device
 
         do {
@@ -126,6 +131,11 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
             if captureSession.canAddOutput(videoOutput!) {
                 captureSession.addOutput(videoOutput!)
+
+                // Create preview layer
+                previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+                previewLayer?.videoGravity = .resizeAspectFill
+
                 visionRequestHandler = VNSequenceRequestHandler()
                 isPrepared = true
                 result(true)
@@ -142,17 +152,24 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(FlutterError(code: "NOT_PREPARED", message: "Scanner not prepared", details: nil))
             return
         }
-        
+
         guard let captureSession = captureSession else {
             result(FlutterError(code: "NO_SESSION", message: "Camera session not initialized", details: nil))
             return
         }
 
         if !captureSession.isRunning {
-            captureSession.startRunning()
+            DispatchQueue.global(qos: .userInitiated).async {
+                captureSession.startRunning()
+                DispatchQueue.main.async {
+                    self.isScanning = true
+                    result(true)
+                }
+            }
+        } else {
+            isScanning = true
+            result(true)
         }
-        isScanning = true
-        result(true)
     }
 
     private func stopScanner(result: @escaping FlutterResult) {
@@ -162,24 +179,31 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
 
         if captureSession.isRunning {
-            captureSession.stopRunning()
+            DispatchQueue.global(qos: .userInitiated).async {
+                captureSession.stopRunning()
+                DispatchQueue.main.async {
+                    self.isScanning = false
+                    result(true)
+                }
+            }
+        } else {
+            isScanning = false
+            result(true)
         }
-        isScanning = false
-        result(true)
     }
-    
+
     private func toggleFlash(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let device = torchDevice, device.hasTorch else {
             result(FlutterError(code: "NO_FLASH", message: "Flash not available", details: nil))
             return
         }
-        
+
         guard let arguments = call.arguments as? [String: Any],
               let enabled = arguments["enabled"] as? Bool else {
             result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
             return
         }
-        
+
         do {
             try device.lockForConfiguration()
             if enabled && device.isTorchAvailable {
@@ -193,23 +217,35 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(FlutterError(code: "FLASH_ERROR", message: "Failed to toggle flash: \(error.localizedDescription)", details: nil))
         }
     }
-    
+
     private func switchCamera(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let arguments = call.arguments as? [String: Any],
               let position = arguments["position"] as? String else {
             result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
             return
         }
-        
+
+        let wasScanning = isScanning
         currentCameraPosition = position == "front" ? .front : .back
-        
-        // Restart camera with new position
-        setupCamera(result: result)
-        
-        // If we were scanning, start scanning again
-        if isScanning, let captureSession = captureSession, !captureSession.isRunning {
-            captureSession.startRunning()
+
+        // Stop current session
+        if let session = captureSession, session.isRunning {
+            session.stopRunning()
         }
+
+        // Restart camera with new position
+        setupCamera(result: { [weak self] setupResult in
+            // Check if setupResult is a FlutterError or success
+            if let error = setupResult as? FlutterError {
+                result(error)
+            } else {
+                // Setup was successful, start scanning again if needed
+                if wasScanning {
+                    self?.scanOnce { _ in }
+                }
+                result(true)
+            }
+        })
     }
 
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -217,7 +253,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        let request = VNDetectBarcodesRequest { request, error in
+        let request = VNDetectBarcodesRequest { [weak self] request, error in
             guard error == nil else {
                 print("Error processing frame: \(error?.localizedDescription ?? "Unknown error")")
                 return
@@ -225,10 +261,11 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
             if let results = request.results as? [VNBarcodeObservation] {
                 for result in results {
-                    if result.symbology == .QR {
+                    if result.symbology == .QR, let payload = result.payloadStringValue {
                         DispatchQueue.main.async {
-                            self.eventSink?(result.payloadStringValue)
+                            self?.eventSink?(payload)
                         }
+                        return // Only send first QR code found
                     }
                 }
             }
@@ -239,5 +276,55 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         } catch {
             print("Failed to perform vision request: \(error.localizedDescription)")
         }
+    }
+
+    // Create preview layer for platform view
+    func createPreviewLayer() -> AVCaptureVideoPreviewLayer? {
+        return previewLayer
+    }
+}
+
+// MARK: - Platform View Factory
+class CameraViewFactory: NSObject, FlutterPlatformViewFactory {
+    private let plugin: UltraQrScannerPlugin
+
+    init(plugin: UltraQrScannerPlugin) {
+        self.plugin = plugin
+        super.init()
+    }
+
+    func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+        return CameraPlatformView(frame: frame, plugin: plugin)
+    }
+
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        return FlutterStandardMessageCodec.sharedInstance()
+    }
+}
+
+// MARK: - Platform View Implementation
+class CameraPlatformView: NSObject, FlutterPlatformView {
+    private let containerView: UIView
+    private let plugin: UltraQrScannerPlugin
+
+    init(frame: CGRect, plugin: UltraQrScannerPlugin) {
+        self.containerView = UIView(frame: frame)
+        self.plugin = plugin
+        super.init()
+
+        containerView.backgroundColor = UIColor.black
+        setupPreviewLayer()
+    }
+
+    private func setupPreviewLayer() {
+        if let previewLayer = plugin.createPreviewLayer() {
+            previewLayer.frame = containerView.bounds
+            previewLayer.videoGravity = .resizeAspectFill
+            containerView.layer.addSublayer(previewLayer)
+        }
+    }
+
+    func view() -> UIView {
+        return containerView
     }
 }
