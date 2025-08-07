@@ -40,7 +40,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ultra_qr_scanner: ^1.0.0
+  ultra_qr_scanner: ^1.0.1
 ```
 
 ```bash
