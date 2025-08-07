@@ -214,7 +214,9 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
         onPlatformViewCreated: (int id) {
           // Platform view is created, camera should be visible now
-          print('Platform view created with id: $id');
+          if (kDebugMode) {
+            print('Platform view created with id: $id');
+          }
         },
       );
     } else if (Platform.isIOS) {
@@ -226,7 +228,9 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
         onPlatformViewCreated: (int id) {
           // Platform view is created, camera should be visible now
-          print('Platform view created with id: $id');
+          if (kDebugMode) {
+            print('Platform view created with id: $id');
+          }
         },
       );
     } else {
@@ -324,7 +328,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
                         borderRadius: BorderRadius.circular(25),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withValues(alpha: 0.3),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -368,7 +372,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
       children: [
         // Semi-transparent background
         Container(
-          color: Colors.black.withOpacity(0.5),
+          color: Colors.black.withValues(alpha: 0.5),
         ),
 
         // Scanning area cutout
