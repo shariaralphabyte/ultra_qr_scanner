@@ -13,12 +13,12 @@ class UltraQrScannerWidget extends StatefulWidget {
   final bool autoStop;
 
   const UltraQrScannerWidget({
-    Key? key,
+    super.key,
     required this.onQrDetected,
     this.overlay,
     this.showFlashToggle = false,
     this.autoStop = true,
-  }) : super(key: key);
+  });
 
   @override
   State<UltraQrScannerWidget> createState() => _UltraQrScannerWidgetState();
@@ -348,30 +348,6 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
                 : null,
           ),
         ),
-
-        // Instructions
-        Positioned(
-          top: 40,
-          left: 16,
-          right: 16,
-          child: Text(
-            'Position QR code within the frame',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              shadows: [
-                Shadow(
-                  color: Colors.black.withOpacity(0.8),
-                  offset: const Offset(1, 1),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-          ),
-        ),
-
         // Status indicator
         if (_isScanning)
           Positioned(
