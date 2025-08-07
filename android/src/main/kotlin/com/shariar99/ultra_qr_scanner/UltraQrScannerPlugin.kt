@@ -3,12 +3,18 @@ package com.shariar99.ultra_qr_scanner
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CameraMetadata
 import android.os.Build
 import androidx.annotation.NonNull
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -40,11 +46,12 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     private var imageAnalyzer: ImageAnalysis? = null
     private var barcodeScanner: BarcodeScanner? = null
     private var lifecycleRegistry: LifecycleRegistry? = null
+    private var camera: Camera? = null
 
     override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         messenger = binding.binaryMessenger
         context = binding.applicationContext
-        
+
         val methodChannel = MethodChannel(messenger, "ultra_qr_scanner")
         methodChannel.setMethodCallHandler(this)
 
@@ -62,9 +69,8 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         lifecycleRegistry = null
     }
 
-    override fun getLifecycle(): Lifecycle {
-        return lifecycleRegistry ?: throw IllegalStateException("LifecycleRegistry not initialized")
-    }
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry ?: throw IllegalStateException("LifecycleRegistry not initialized")
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
         when (call.method) {
@@ -91,7 +97,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
             cameraProviderFuture.addListener({
                 try {
                     cameraProvider = cameraProviderFuture.get()
-                    
+
                     // Initialize barcode scanner
                     val options = BarcodeScannerOptions.Builder()
                         .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -148,7 +154,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
             // Bind use cases
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
+            camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
@@ -170,6 +176,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
             }
 
             cameraProvider.unbindAll()
+            camera = null
             isScanning = false
             result.success(true)
         } catch (e: Exception) {
@@ -184,21 +191,38 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
 
         val enabled = call.argument<Boolean>("enabled") ?: false
-        
+
         try {
-            val camera = cameraProvider.getCamera(cameraSelector)
-            val characteristics = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = characteristics.cameraIdList.firstOrNull { id ->
-                characteristics.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == 
-                if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) CameraMetadata.LENS_FACING_BACK else CameraMetadata.LENS_FACING_FRONT
+            val currentCamera = camera
+            if (currentCamera == null) {
+                result.error("NO_CAMERA", "Camera not bound", null)
+                return
             }
-            
-            if (cameraId == null || !characteristics.getCameraCharacteristics(cameraId).get(CameraCharacteristics.FLASH_INFO_AVAILABLE)!!) {
+
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                val characteristics = cameraManager.getCameraCharacteristics(id)
+                characteristics.get(CameraCharacteristics.LENS_FACING) ==
+                        if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA)
+                            CameraMetadata.LENS_FACING_BACK
+                        else
+                            CameraMetadata.LENS_FACING_FRONT
+            }
+
+            if (cameraId == null) {
+                result.error("NO_FLASH", "Camera not found", null)
+                return
+            }
+
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+            val flashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) ?: false
+
+            if (!flashAvailable) {
                 result.error("NO_FLASH", "Flash not available", null)
                 return
             }
 
-            camera.cameraControl.enableTorch(enabled)
+            currentCamera.cameraControl.enableTorch(enabled)
             result.success(true)
         } catch (e: Exception) {
             result.error("FLASH_ERROR", e.message ?: "Failed to toggle flash", e.localizedMessage)
@@ -217,10 +241,10 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
-        
+
         // Stop current camera
         cameraProvider.unbindAll()
-        
+
         // Start new camera with updated selector
         try {
             preview = Preview.Builder().build()
@@ -245,13 +269,13 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                     }
                 }
 
-            cameraProvider.bindToLifecycle(
+            camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
                 imageAnalyzer
             )
-            
+
             result.success(true)
         } catch (e: Exception) {
             result.error("CAMERA_ERROR", "Failed to switch camera", e.message)
@@ -270,7 +294,6 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
-
     override fun onListen(arguments: Any?, events: EventSink?) {
         eventSink = events
     }
@@ -280,20 +303,20 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        // Handle activity lifecycle
+        lifecycleRegistry?.currentState = Lifecycle.State.RESUMED
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
-        // Handle config changes
+        lifecycleRegistry?.currentState = Lifecycle.State.STARTED
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        // Handle config changes
+        lifecycleRegistry?.currentState = Lifecycle.State.RESUMED
     }
 
     override fun onDetachedFromActivity() {
-        // Cleanup
-        cameraExecutor.shutdown()
-        preview?.unbindAll()
+        lifecycleRegistry?.currentState = Lifecycle.State.CREATED
+        cameraProvider.unbindAll()
+        camera = null
     }
 }

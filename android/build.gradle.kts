@@ -24,7 +24,6 @@ allprojects {
 plugins {
     id("com.android.library")
     id("kotlin-android")
-    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
@@ -59,17 +58,5 @@ android {
         implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
         testImplementation("org.jetbrains.kotlin:kotlin-test")
         testImplementation("org.mockito:mockito-core:5.0.0")
-    }
-
-    testOptions {
-        unitTests.all {
-            useJUnitPlatform()
-
-            testLogging {
-                events("passed", "skipped", "failed", "standardOut", "standardError")
-                outputs.upToDateWhen { false }
-                showStandardStreams = true
-            }
-        }
     }
 }
