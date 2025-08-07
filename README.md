@@ -1,4 +1,8 @@
 # Ultra QR Scanner 📱⚡
+[![pub package](https://img.shields.io/pub/v/ultra_qr_scanner.svg)](https://pub.dev/packages/ultra_qr_scanner)
+[![GitHub](https://img.shields.io/github/license/shariaralphabyte/screen_secure)](https://github.com/shariaralphabyte/ultra_qr_scanner/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://pub.dev/packages/ultra_qr_scanner)
+
 
 **Ultra-fast, low-latency QR code scanner plugin for Flutter with native camera preview and performance optimization.**
 
