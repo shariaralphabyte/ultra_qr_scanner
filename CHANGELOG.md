@@ -1,12 +1,22 @@
 # Changelog
 
+## 1.0.0
+* Major rewrite of the entire plugin
+* Fixed all Android and iOS implementation issues
+* Updated Dart API to match documentation
+* Rewrote widget implementation
+* Fixed method name mismatches between platforms
+* Cleaned up dependencies and build configurations
+* Added proper error handling and permission management
+* Improved camera lifecycle management
+* Fixed flash toggle and camera switching functionality
+
 ## 0.0.6
 * Updated to com.shariar99.ultra_qr_scanner package
 * change kt file
 
 ## 0.0.5
 * Updated to com.shariar99.ultra_qr_scanner package
-
 
 ## 0.0.4
 * Updated to com.shariar99.ultra_qr_scanner package

@@ -70,7 +70,6 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         when (call.method) {
             "prepareScanner" -> prepareScanner(result)
             "scanOnce" -> scanOnce(result)
-            "startScanStream" -> startScanStream(result)
             "stopScanner" -> stopScanner(result)
             "toggleFlash" -> toggleFlash(call, result)
             "requestPermissions" -> requestPermissions(result)
@@ -79,7 +78,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
-    private fun initialize(result: Result) {
+    private fun prepareScanner(result: Result) {
         try {
             // Check camera permission
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -131,7 +130,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
-    private fun startScanning(result: Result) {
+    private fun scanOnce(result: Result) {
         try {
             if (!::cameraProvider.isInitialized) {
                 result.error("NOT_INITIALIZED", "Scanner not initialized", null)
@@ -150,7 +149,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
             // Bind use cases
             cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
-                context as LifecycleOwner,
+                this,
                 cameraSelector,
                 preview,
                 imageAnalyzer
@@ -163,7 +162,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
-    private fun stopScanning(result: Result) {
+    private fun stopScanner(result: Result) {
         try {
             if (!::cameraProvider.isInitialized || !isScanning) {
                 result.success(true)
@@ -207,7 +206,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     }
 
     private fun switchCamera(call: MethodCall, result: Result) {
-        if (!isPrepared) {
+        if (!::cameraProvider.isInitialized) {
             result.error("NOT_PREPARED", "Scanner not prepared", null)
             return
         }
@@ -218,8 +217,45 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
-        startCameraPreview()
-        result.success(true)
+        
+        // Stop current camera
+        cameraProvider.unbindAll()
+        
+        // Start new camera with updated selector
+        try {
+            preview = Preview.Builder().build()
+            imageAnalyzer = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor) { image ->
+                        val inputImage = InputImage.fromMediaImage(image.image!!, image.imageInfo.rotationDegrees)
+                        barcodeScanner?.process(inputImage)
+                            ?.addOnSuccessListener { barcodes ->
+                                for (barcode in barcodes) {
+                                    eventSink?.success(barcode.rawValue)
+                                }
+                            }
+                            ?.addOnFailureListener { e ->
+                                eventSink?.error("ERROR", "Failed to scan QR code", e.message)
+                            }
+                            ?.addOnCompleteListener {
+                                image.close()
+                            }
+                    }
+                }
+
+            cameraProvider.bindToLifecycle(
+                this,
+                cameraSelector,
+                preview,
+                imageAnalyzer
+            )
+            
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("CAMERA_ERROR", "Failed to switch camera", e.message)
+        }
     }
 
     private fun requestPermissions(result: Result) {
@@ -234,53 +270,6 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         }
     }
 
-    private fun startCameraPreview() {
-        preview = Preview.Builder().build()
-        imageAnalyzer = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-            .also {
-                it.setAnalyzer(cameraExecutor) { image ->
-                    val imageProxy = image.image ?: return@setAnalyzer
-                    val inputImage = InputImage.fromMediaImage(imageProxy, image.imageInfo.rotationDegrees)
-                    processImage(inputImage)
-                    image.close()
-                }
-            }
-
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                context as ActivityPluginBinding.ActivityContext,
-                cameraSelector,
-                preview,
-                imageAnalyzer
-            )
-        } catch (e: Exception) {
-            eventSink?.error("ERROR", e.message ?: "Failed to start camera", e.localizedMessage)
-        }
-    }
-
-    private fun processImage(image: InputImage) {
-        if (!isScanning) return
-
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        barcodeScanner = BarcodeScanning.getClient(options)
-
-        barcodeScanner?.process(image)
-            ?.addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    val qrCode = barcode.rawValue ?: continue
-                    eventSink?.success(qrCode)
-                    if (!isScanning) break
-                }
-            }
-            ?.addOnFailureListener { e ->
-                eventSink?.error("ERROR", e.message ?: "Failed to process image", e.localizedMessage)
-            }
-    }
 
     override fun onListen(arguments: Any?, events: EventSink?) {
         eventSink = events

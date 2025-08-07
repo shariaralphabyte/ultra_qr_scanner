@@ -11,8 +11,11 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private var captureSession: AVCaptureSession?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var isScanning = false
+    private var isPrepared = false
     private var visionRequestHandler: VNSequenceRequestHandler?
     private let processingQueue = DispatchQueue(label: "qr_processing", qos: .userInitiated)
+    private var currentCameraPosition: AVCaptureDevice.Position = .back
+    private var torchDevice: AVCaptureDevice?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = UltraQrScannerPlugin()
@@ -43,18 +46,58 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
-        case "initialize":
-            setupCamera(result: result)
-        case "startScanning":
-            startScanning(result: result)
-        case "stopScanning":
-            stopScanning(result: result)
+        case "prepareScanner":
+            prepareScanner(result: result)
+        case "scanOnce":
+            scanOnce(result: result)
+        case "stopScanner":
+            stopScanner(result: result)
+        case "toggleFlash":
+            toggleFlash(call: call, result: result)
+        case "requestPermissions":
+            requestPermissions(result: result)
+        case "switchCamera":
+            switchCamera(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
+    private func prepareScanner(result: @escaping FlutterResult) {
+        // Check camera permission
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        if status != .authorized {
+            result(FlutterError(code: "PERMISSION_DENIED", message: "Camera permission is required", details: nil))
+            return
+        }
+        
+        setupCamera(result: result)
+    }
+    
+    private func requestPermissions(result: @escaping FlutterResult) {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        if status == .authorized {
+            result(true)
+            return
+        }
+        
+        if status == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    result(granted)
+                }
+            }
+        } else {
+            result(false)
+        }
+    }
+
     private func setupCamera(result: @escaping FlutterResult) {
+        // Clean up existing session if any
+        if let session = captureSession, session.isRunning {
+            session.stopRunning()
+        }
+        
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .vga640x480
 
@@ -63,10 +106,13 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             return
         }
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+        let devicePosition = currentCameraPosition
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: devicePosition) else {
             result(FlutterError(code: "NO_CAMERA", message: "No camera available", details: nil))
             return
         }
+        
+        torchDevice = device
 
         do {
             let input = try AVCaptureDeviceInput(device: device)
@@ -81,7 +127,8 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             if captureSession.canAddOutput(videoOutput!) {
                 captureSession.addOutput(videoOutput!)
                 visionRequestHandler = VNSequenceRequestHandler()
-                result(nil)
+                isPrepared = true
+                result(true)
             } else {
                 result(FlutterError(code: "SETUP_ERROR", message: "Failed to add video output", details: nil))
             }
@@ -90,7 +137,12 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
     }
 
-    private func startScanning(result: @escaping FlutterResult) {
+    private func scanOnce(result: @escaping FlutterResult) {
+        guard isPrepared else {
+            result(FlutterError(code: "NOT_PREPARED", message: "Scanner not prepared", details: nil))
+            return
+        }
+        
         guard let captureSession = captureSession else {
             result(FlutterError(code: "NO_SESSION", message: "Camera session not initialized", details: nil))
             return
@@ -100,12 +152,12 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             captureSession.startRunning()
         }
         isScanning = true
-        result(nil)
+        result(true)
     }
 
-    private func stopScanning(result: @escaping FlutterResult) {
+    private func stopScanner(result: @escaping FlutterResult) {
         guard let captureSession = captureSession else {
-            result(FlutterError(code: "NO_SESSION", message: "Camera session not initialized", details: nil))
+            result(true)
             return
         }
 
@@ -113,7 +165,51 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             captureSession.stopRunning()
         }
         isScanning = false
-        result(nil)
+        result(true)
+    }
+    
+    private func toggleFlash(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let device = torchDevice, device.hasTorch else {
+            result(FlutterError(code: "NO_FLASH", message: "Flash not available", details: nil))
+            return
+        }
+        
+        guard let arguments = call.arguments as? [String: Any],
+              let enabled = arguments["enabled"] as? Bool else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
+            return
+        }
+        
+        do {
+            try device.lockForConfiguration()
+            if enabled && device.isTorchAvailable {
+                try device.setTorchModeOn(level: 1.0)
+            } else {
+                device.torchMode = .off
+            }
+            device.unlockForConfiguration()
+            result(true)
+        } catch {
+            result(FlutterError(code: "FLASH_ERROR", message: "Failed to toggle flash: \(error.localizedDescription)", details: nil))
+        }
+    }
+    
+    private func switchCamera(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let arguments = call.arguments as? [String: Any],
+              let position = arguments["position"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
+            return
+        }
+        
+        currentCameraPosition = position == "front" ? .front : .back
+        
+        // Restart camera with new position
+        setupCamera(result: result)
+        
+        // If we were scanning, start scanning again
+        if isScanning, let captureSession = captureSession, !captureSession.isRunning {
+            captureSession.startRunning()
+        }
     }
 
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {

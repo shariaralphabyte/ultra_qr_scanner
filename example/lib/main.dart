@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
+import 'package:ultra_qr_scanner/ultra_qr_scanner_widget.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Request camera permission and prepare scanner during app startup
+  final hasPermission = await UltraQrScanner.requestPermissions();
+  if (hasPermission) {
+    await UltraQrScanner.prepareScanner();
+  }
+  
   runApp(const MyApp());
 }
 
@@ -28,66 +37,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final UltraQrScanner _scanner = UltraQrScanner();
-  bool _isScanning = false;
   String? _lastScannedCode;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeScanner();
-  }
-
-  Future<void> _initializeScanner() async {
-    try {
-      await _scanner.initialize();
-      _scanner.onCodeDetected.listen((code) {
-        if (code != null) {
-          setState(() {
-            _lastScannedCode = code;
-          });
-        }
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize scanner: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _startScanning() async {
-    if (_isScanning) return;
-    try {
-      await _scanner.startScanning();
-      setState(() {
-        _isScanning = true;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start scanning: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _stopScanning() async {
-    if (!_isScanning) return;
-    try {
-      await _scanner.stopScanning();
-      setState(() {
-        _isScanning = false;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to stop scanning: $e')),
-        );
-      }
-    }
-  }
+  bool _isScanning = false;
 
   @override
   Widget build(BuildContext context) {
@@ -99,29 +50,40 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Text(
+            const Text(
               'Scan QR code to see results below',
-              style: Theme.of(context).textTheme.headlineMedium,
+              style: TextStyle(fontSize: 18),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                _lastScannedCode ?? 'No QR code scanned yet',
-                style: const TextStyle(fontSize: 20),
+            const SizedBox(height: 20),
+            // Show scanner widget
+            SizedBox(
+              width: 300,
+              height: 300,
+              child: UltraQrScannerWidget(
+                onQrDetected: (code) {
+                  setState(() {
+                    _lastScannedCode = code;
+                    _isScanning = false;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Scanned: $code'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                showFlashToggle: true,
+                autoStop: true,
               ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _lastScannedCode ?? 'No QR code scanned yet',
+              style: const TextStyle(fontSize: 20),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          if (_isScanning) {
-            await _stopScanning();
-          } else {
-            await _startScanning();
-          }
-        },
-        child: Icon(_isScanning ? Icons.stop : Icons.play_arrow),
       ),
     );
   }

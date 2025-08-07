@@ -2,95 +2,113 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 
-typedef QrCodeCallback = void Function(String? code);
-
+/// Ultra-fast QR code scanner for Flutter with native performance optimization
 class UltraQrScanner {
   static const MethodChannel _channel = MethodChannel('ultra_qr_scanner');
   static const EventChannel _eventChannel = EventChannel('ultra_qr_scanner_events');
 
-  bool _isScanning = false;
-  StreamController<String?>? _streamController;
+  static bool _isPrepared = false;
+  static bool _isScanning = false;
 
-  UltraQrScanner._();
-
-  static final UltraQrScanner _instance = UltraQrScanner._();
-
-  factory UltraQrScanner() => _instance;
-
-  Stream<String?> get onCodeDetected {
-    _streamController ??= StreamController<String?>(
-      onListen: _startListening,
-      onCancel: _stopListening,
-    );
-    return _streamController!.stream;
+  /// Request camera permissions
+  static Future<bool> requestPermissions() async {
+    try {
+      final result = await _channel.invokeMethod('requestPermissions');
+      return result as bool? ?? false;
+    } catch (e) {
+      return false;
+    }
   }
 
-  Future<void> initialize() async {
+  /// Prepare scanner for ultra-fast access
+  static Future<void> prepareScanner() async {
     try {
-      await _channel.invokeMethod('initialize');
+      await _channel.invokeMethod('prepareScanner');
+      _isPrepared = true;
     } catch (e) {
-      throw QrScannerException(
-        code: 'INIT_ERROR',
-        message: 'Failed to initialize scanner: $e',
+      throw UltraQrScannerException(
+        code: 'PREPARE_ERROR',
+        message: 'Failed to prepare scanner: $e',
       );
     }
   }
 
-  Future<void> startScanning() async {
-    if (_isScanning) return;
+  /// Scan QR code once and return result
+  static Future<String?> scanOnce() async {
+    if (!_isPrepared) {
+      await prepareScanner();
+    }
 
     try {
-      await _channel.invokeMethod('startScanning');
-      _isScanning = true;
+      final result = await _channel.invokeMethod('scanOnce');
+      return result as String?;
     } catch (e) {
-      throw QrScannerException(
-        code: 'START_ERROR',
-        message: 'Failed to start scanning: $e',
+      throw UltraQrScannerException(
+        code: 'SCAN_ERROR',
+        message: 'Failed to scan QR code: $e',
       );
     }
   }
 
-  Future<void> stopScanning() async {
-    if (!_isScanning) return;
+  /// Start continuous scanning stream
+  static Stream<String> scanStream() {
+    return _eventChannel.receiveBroadcastStream().map((event) => event as String);
+  }
 
+  /// Stop scanner and release resources
+  static Future<void> stopScanner() async {
     try {
-      await _channel.invokeMethod('stopScanning');
+      await _channel.invokeMethod('stopScanner');
       _isScanning = false;
     } catch (e) {
-      throw QrScannerException(
+      throw UltraQrScannerException(
         code: 'STOP_ERROR',
-        message: 'Failed to stop scanning: $e',
+        message: 'Failed to stop scanner: $e',
       );
     }
   }
 
-  void _startListening() {
-    _eventChannel.receiveBroadcastStream().listen(
-          (event) {
-        _streamController?.add(event as String?);
-      },
-      onError: (error) {
-        _streamController?.addError(error);
-      },
-    );
+  /// Toggle flash on/off
+  static Future<void> toggleFlash(bool enabled) async {
+    try {
+      await _channel.invokeMethod('toggleFlash', {'enabled': enabled});
+    } catch (e) {
+      throw UltraQrScannerException(
+        code: 'FLASH_ERROR',
+        message: 'Failed to toggle flash: $e',
+      );
+    }
   }
 
-  void _stopListening() {
-    _streamController?.close();
-    _streamController = null;
+  /// Switch camera (front/back)
+  static Future<void> switchCamera(String position) async {
+    try {
+      await _channel.invokeMethod('switchCamera', {'position': position});
+    } catch (e) {
+      throw UltraQrScannerException(
+        code: 'CAMERA_ERROR',
+        message: 'Failed to switch camera: $e',
+      );
+    }
   }
+
+  /// Check if scanner is prepared
+  static bool get isPrepared => _isPrepared;
+
+  /// Check if scanner is currently scanning
+  static bool get isScanning => _isScanning;
 }
 
 /// Exception thrown by UltraQrScanner
-class QrScannerException implements Exception {
+class UltraQrScannerException implements Exception {
   final String code;
   final String message;
 
-  QrScannerException({
+  UltraQrScannerException({
     required this.code,
     required this.message,
   });
 
   @override
-  String toString() => '$runtimeType: $code - $message';
+  String toString() => 'UltraQrScannerException: $code - $message';
 }

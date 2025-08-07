@@ -26,4 +26,28 @@ abstract class UltraQrScannerPlatform extends PlatformInterface {
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
+
+  Future<bool> prepareScanner() {
+    throw UnimplementedError('prepareScanner() has not been implemented.');
+  }
+
+  Future<String?> scanOnce() {
+    throw UnimplementedError('scanOnce() has not been implemented.');
+  }
+
+  Future<void> stopScanner() {
+    throw UnimplementedError('stopScanner() has not been implemented.');
+  }
+
+  Future<void> toggleFlash(bool enabled) {
+    throw UnimplementedError('toggleFlash() has not been implemented.');
+  }
+
+  Future<void> switchCamera(String position) {
+    throw UnimplementedError('switchCamera() has not been implemented.');
+  }
+
+  Future<bool> requestPermissions() {
+    throw UnimplementedError('requestPermissions() has not been implemented.');
+  }
 }
