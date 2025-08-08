@@ -66,6 +66,18 @@ class UltraQrScanner {
     }
   }
 
+  // Add this method:
+  static Stream<Map<String, dynamic>> scanStreamWithType() {
+    try {
+      return UltraQrScannerPlatform.instance.scanStreamWithType();
+    } catch (e) {
+      throw UltraQrScannerException(
+        code: 'STREAM_ERROR',
+        message: 'Failed to start scan stream: $e',
+      );
+    }
+  }
+
   /// Stop scanner and release resources
   static Future<void> stopScanner() async {
     try {

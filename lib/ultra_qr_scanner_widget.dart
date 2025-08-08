@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'ultra_qr_scanner.dart';
 
 class UltraQrScannerWidget extends StatefulWidget {
-  final Function(String) onQrDetected;
+  final Function(String, String) onCodeDetected; // (code, type)
   final Widget? overlay;
   final bool showFlashToggle;
   final bool autoStop;
@@ -16,7 +16,7 @@ class UltraQrScannerWidget extends StatefulWidget {
 
   const UltraQrScannerWidget({
     super.key,
-    required this.onQrDetected,
+    required this.onCodeDetected,
     this.overlay,
     this.showFlashToggle = false,
     this.autoStop = true,
@@ -34,7 +34,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   bool _hasPermission = false;
   bool _isFlashOn = false;
   String _currentCamera = 'back';
-  StreamSubscription<String>? _scanSubscription;
+  StreamSubscription<Map<String, dynamic>>? _scanSubscription;
   bool _isInitializing = true;
 
   @override
@@ -98,11 +98,13 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
         _isScanning = true;
       });
 
-      // Start continuous scanning stream
-      _scanSubscription = UltraQrScanner.scanStream().listen(
-            (qrCode) {
+      // Update the stream subscription in _startScanning():
+      _scanSubscription = UltraQrScanner.scanStreamWithType().listen(
+            (result) {
           if (mounted) {
-            widget.onQrDetected(qrCode);
+            final code = result['code'] as String;
+            final type = result['type'] as String;
+            widget.onCodeDetected(code, type);
             if (widget.autoStop) {
               _stopScanning();
             }

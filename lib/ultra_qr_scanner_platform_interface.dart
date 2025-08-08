@@ -53,4 +53,9 @@ abstract class UltraQrScannerPlatform extends PlatformInterface {
   Stream<String> scanStream() {
     throw UnimplementedError('scanStream() has not been implemented.');
   }
+
+  Stream<Map<String, dynamic>> scanStreamWithType() {
+    throw UnimplementedError('scanStreamWithType() has not been implemented.');
+  }
+
 }

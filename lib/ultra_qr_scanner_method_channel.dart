@@ -8,6 +8,10 @@ class MethodChannelUltraQrScanner extends UltraQrScannerPlatform {
   @visibleForTesting
   final methodChannel = const MethodChannel('ultra_qr_scanner');
 
+  // Add this property with your existing eventChannel:
+  @visibleForTesting
+  final eventChannelWithType = const EventChannel('ultra_qr_scanner_events_with_type');
+
   /// The event channel used for continuous scanning stream.
   @visibleForTesting
   final eventChannel = const EventChannel('ultra_qr_scanner_events');
@@ -26,6 +30,20 @@ class MethodChannelUltraQrScanner extends UltraQrScannerPlatform {
     } catch (e) {
       return false;
     }
+  }
+
+  // Add this to your MethodChannelUltraQrScanner class:
+  @override
+  Stream<Map<String, dynamic>> scanStreamWithType() {
+    return eventChannelWithType.receiveBroadcastStream().map((event) {
+      if (event is Map) {
+        return Map<String, dynamic>.from(event);
+      }
+      return {
+        'code': event.toString(),
+        'type': 'UNKNOWN',
+      };
+    });
   }
 
   @override

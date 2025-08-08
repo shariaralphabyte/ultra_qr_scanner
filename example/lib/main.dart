@@ -109,7 +109,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 ],
               ),
               child: UltraQrScannerWidget(
-                onQrDetected: (code) {
+                onCodeDetected: (code , type) {
                   setState(() {
                     _lastScannedCode = code;
                   });
@@ -217,7 +217,7 @@ class AutoStartScannerPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Auto Scanner')),
       body: UltraQrScannerWidget(
-        onQrDetected: (code) {
+        onCodeDetected: (code , type) {
           Navigator.pop(context, code);
         },
         showFlashToggle: true,
@@ -237,7 +237,7 @@ class ManualScannerPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Manual Scanner')),
       body: UltraQrScannerWidget(
-        onQrDetected: (code) {
+        onCodeDetected: (code, type) {
           Navigator.pop(context, code);
         },
         showFlashToggle: true,

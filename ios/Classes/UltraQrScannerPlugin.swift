@@ -18,6 +18,42 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private var currentCameraPosition: AVCaptureDevice.Position = .back
     private var torchDevice: AVCaptureDevice?
 
+    private var eventChannelWithType: FlutterEventChannel!
+    private var eventSinkWithType: FlutterEventSink?
+  // Enable all supported formats
+    request.symbologies = [
+        .qr,
+        .code128,
+        .code39,
+        .code93,
+        .ean13,
+        .ean8,
+        .upce,
+        .codabar,
+        .itf14,
+        .pdf417,
+        .dataMatrix,
+        .aztec
+    ]
+
+    private func getBarcodeTypeName(_ symbology: VNBarcodeSymbology) -> String {
+        switch symbology {
+        case .qr: return "QR_CODE"
+        case .code128: return "CODE_128"
+        case .code39: return "CODE_39"
+        case .code93: return "CODE_93"
+        case .ean13: return "EAN_13"
+        case .ean8: return "EAN_8"
+        case .upce: return "UPC_E"
+        case .codabar: return "CODABAR"
+        case .itf14: return "ITF"
+        case .pdf417: return "PDF417"
+        case .dataMatrix: return "DATA_MATRIX"
+        case .aztec: return "AZTEC"
+        default: return "UNKNOWN"
+        }
+    }
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = UltraQrScannerPlugin()
 
@@ -31,6 +67,14 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             binaryMessenger: registrar.messenger()
         )
 
+
+        instance.eventChannelWithType = FlutterEventChannel(
+            name: "ultra_qr_scanner_events_with_type",
+            binaryMessenger: registrar.messenger()
+        )
+
+        instance.eventChannelWithType.setStreamHandler(instance)
+
         registrar.addMethodCallDelegate(instance, channel: instance.channel)
         instance.eventChannel.setStreamHandler(instance)
 
@@ -39,10 +83,14 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         registrar.register(factory, withId: "ultra_qr_camera_view")
     }
 
-    public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
-        self.eventSink = eventSink
-        return nil
-    }
+   public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
+       if let args = arguments as? [String: Any], let channel = args["channel"] as? String, channel == "with_type" {
+           self.eventSinkWithType = eventSink
+       } else {
+           self.eventSink = eventSink
+       }
+       return nil
+   }
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         self.eventSink = nil
@@ -253,23 +301,34 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        let request = VNDetectBarcodesRequest { [weak self] request, error in
-            guard error == nil else {
-                print("Error processing frame: \(error?.localizedDescription ?? "Unknown error")")
-                return
-            }
+    // Replace the existing Vision request:
+    let request = VNDetectBarcodesRequest { [weak self] request, error in
+        guard error == nil else {
+            print("Error processing frame: \(error?.localizedDescription ?? "Unknown error")")
+            return
+        }
 
-            if let results = request.results as? [VNBarcodeObservation] {
-                for result in results {
-                    if result.symbology == .QR, let payload = result.payloadStringValue {
-                        DispatchQueue.main.async {
-                            self?.eventSink?(payload)
-                        }
-                        return // Only send first QR code found
+        if let results = request.results as? [VNBarcodeObservation] {
+            for result in results {
+                if let payload = result.payloadStringValue {
+                    DispatchQueue.main.async {
+                        // Send to legacy event sink
+                        self?.eventSink?(payload)
+
+                        // Send to new event sink with type info
+                        let resultWithType: [String: Any] = [
+                            "code": payload,
+                            "type": self?.getBarcodeTypeName(result.symbology) ?? "UNKNOWN"
+                        ]
+                        self?.eventSinkWithType?(resultWithType)
                     }
+                    return // Only send first code found
                 }
             }
         }
+    }
+
+
 
         do {
             try visionRequestHandler!.perform([request], on: pixelBuffer)

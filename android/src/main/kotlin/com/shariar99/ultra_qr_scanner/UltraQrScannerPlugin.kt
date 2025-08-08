@@ -54,7 +54,7 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
     private var barcodeScanner: BarcodeScanner? = null
     private var lifecycleRegistry: LifecycleRegistry? = null
     private var camera: Camera? = null
-
+    private var eventSinkWithType: EventSink? = null
     // Add PreviewView for camera display
     private var previewView: PreviewView? = null
 
@@ -67,6 +67,16 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
         val eventChannel = EventChannel(messenger, "ultra_qr_scanner_events")
         eventChannel.setStreamHandler(this)
+
+        val eventChannelWithType = EventChannel(messenger, "ultra_qr_scanner_events_with_type")
+        eventChannelWithType.setStreamHandler(object : StreamHandler {
+            override fun onListen(arguments: Any?, events: EventSink?) {
+                eventSinkWithType = events
+            }
+            override fun onCancel(arguments: Any?) {
+                eventSinkWithType = null
+            }
+        })
 
         // Register platform view factory
         binding.platformViewRegistry.registerViewFactory(
@@ -111,6 +121,24 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
             else -> result.notImplemented()
         }
     }
+    private fun getBarcodeFormatName(format: Int): String {
+        return when (format) {
+            Barcode.FORMAT_QR_CODE -> "QR_CODE"
+            Barcode.FORMAT_CODE_128 -> "CODE_128"
+            Barcode.FORMAT_CODE_39 -> "CODE_39"
+            Barcode.FORMAT_CODE_93 -> "CODE_93"
+            Barcode.FORMAT_EAN_13 -> "EAN_13"
+            Barcode.FORMAT_EAN_8 -> "EAN_8"
+            Barcode.FORMAT_UPC_A -> "UPC_A"
+            Barcode.FORMAT_UPC_E -> "UPC_E"
+            Barcode.FORMAT_CODABAR -> "CODABAR"
+            Barcode.FORMAT_ITF -> "ITF"
+            Barcode.FORMAT_PDF417 -> "PDF417"
+            Barcode.FORMAT_DATA_MATRIX -> "DATA_MATRIX"
+            Barcode.FORMAT_AZTEC -> "AZTEC"
+            else -> "UNKNOWN"
+        }
+    }
 
     private fun prepareScanner(result: Result) {
         try {
@@ -128,8 +156,23 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
 
                     // Initialize barcode scanner
                     val options = BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                        .setBarcodeFormats(
+                            Barcode.FORMAT_QR_CODE,
+                            Barcode.FORMAT_CODE_128,
+                            Barcode.FORMAT_CODE_39,
+                            Barcode.FORMAT_CODE_93,
+                            Barcode.FORMAT_EAN_13,
+                            Barcode.FORMAT_EAN_8,
+                            Barcode.FORMAT_UPC_A,
+                            Barcode.FORMAT_UPC_E,
+                            Barcode.FORMAT_CODABAR,
+                            Barcode.FORMAT_ITF,
+                            Barcode.FORMAT_PDF417,
+                            Barcode.FORMAT_DATA_MATRIX,
+                            Barcode.FORMAT_AZTEC
+                        )
                         .build()
+
                     barcodeScanner = BarcodeScanning.getClient(options)
 
                     // Initialize preview
@@ -153,7 +196,15 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                                 barcodeScanner?.process(inputImage)
                                     ?.addOnSuccessListener { barcodes ->
                                         for (barcode in barcodes) {
+                                            // Send to legacy event sink
                                             eventSink?.success(barcode.rawValue)
+
+                                            // Send to new event sink with type info
+                                            val result = mapOf(
+                                                "code" to barcode.rawValue,
+                                                "type" to getBarcodeFormatName(barcode.format)
+                                            )
+                                            eventSinkWithType?.success(result)
                                         }
                                     }
                                     ?.addOnFailureListener { e ->
