@@ -1,5 +1,5 @@
 # Changelog
-## 3.0.1
+## 3.0.2
 * **New Readme update**: add and update readme for more clear documentation 
 ## 3.0.0
 * **MAJOR RELEASE**: Added comprehensive barcode scanning support
