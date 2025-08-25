@@ -1,4 +1,6 @@
 # Changelog
+## 3.0.1
+* **New Readme update**: add and update readme for more clear documentation 
 ## 3.0.0
 * **MAJOR RELEASE**: Added comprehensive barcode scanning support
 * **Auto-Detection**: Automatically detects and scans both QR codes and barcodes without mode switching
