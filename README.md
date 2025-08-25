@@ -93,7 +93,7 @@ class QuickScannerPage extends StatelessWidget {
         width: 300,
         height: 300,
         child: UltraQrScannerWidget(
-          onQrDetected: (qrCode) {
+          onCodeDetected:(code , type) {
             print('QR Code detected: $qrCode');
             Navigator.pop(context, qrCode);
           },
@@ -120,7 +120,7 @@ class ManualScannerPage extends StatelessWidget {
         width: 300,
         height: 300,
         child: UltraQrScannerWidget(
-          onQrDetected: (qrCode) {
+          onCodeDetected:(code , type) {
             print('QR Code detected: $qrCode');
             Navigator.pop(context, qrCode);
           },
@@ -181,7 +181,7 @@ Perfect for quick scanning scenarios where you want immediate results:
 
 ```dart
 UltraQrScannerWidget(
-  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  onCodeDetected:(code , type) => handleQRCode(qrCode),
   autoStart: true,             // Start scanning immediately
   showStartStopButton: false,  // Hide manual controls
   autoStop: true,              // Stop after first detection
@@ -194,7 +194,7 @@ Traditional scanning with user controls:
 
 ```dart
 UltraQrScannerWidget(
-  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  onCodeDetected:(code , type) => handleQRCode(qrCode),
   autoStart: false,            // Wait for user action
   showStartStopButton: true,   // Show start/stop button
   autoStop: true,              // Stop after first detection
@@ -207,7 +207,7 @@ Auto-start with manual controls available:
 
 ```dart
 UltraQrScannerWidget(
-  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  onCodeDetected:(code , type) => handleQRCode(qrCode),
   autoStart: true,             // Start immediately
   showStartStopButton: true,   // But also show controls
   autoStop: false,             // Continuous scanning
@@ -230,7 +230,7 @@ UltraQrScannerWidget(
 
 ```dart
 UltraQrScannerWidget(
-  onQrDetected: (qrCode) => handleQRCode(qrCode),
+  onCodeDetected:(code , type) (qrCode) => handleQRCode(qrCode),
   autoStart: true,
   showStartStopButton: false,
   overlay: Stack(
@@ -309,7 +309,7 @@ UltraQrScannerWidget(
 ```dart
 // Perfect for: Payment apps, quick actions, URL scanning
 UltraQrScannerWidget(
-  onQrDetected: (code) => processPayment(code),
+  onCodeDetected:(code , type) => processPayment(code),
   autoStart: true,
   showStartStopButton: false,
   autoStop: true,
@@ -320,7 +320,7 @@ UltraQrScannerWidget(
 ```dart
 // Perfect for: Document scanning, batch operations, careful scanning
 UltraQrScannerWidget(
-  onQrDetected: (code) => addToList(code),
+  onCodeDetected:(code , type) => addToList(code),
   autoStart: false,
   showStartStopButton: true,
   autoStop: false, // Continuous scanning
@@ -331,7 +331,7 @@ UltraQrScannerWidget(
 ```dart
 // Perfect for: Professional apps, feature-rich scanning
 UltraQrScannerWidget(
-  onQrDetected: (code) => handleCode(code),
+  oonCodeDetected:(code , type) => handleCode(code),
   autoStart: true,
   showStartStopButton: true,
   showFlashToggle: true,
@@ -532,7 +532,7 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
                 child: UltraQrScannerWidget(
-                  onQrDetected: (code) {
+                  onCodeDetected:(code , type) {
                     setState(() {
                       lastQRCode = code;
                     });
