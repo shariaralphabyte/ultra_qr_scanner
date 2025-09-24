@@ -20,21 +20,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
     private var eventChannelWithType: FlutterEventChannel!
     private var eventSinkWithType: FlutterEventSink?
-  // Enable all supported formats
-    request.symbologies = [
-        .qr,
-        .code128,
-        .code39,
-        .code93,
-        .ean13,
-        .ean8,
-        .upce,
-        .codabar,
-        .itf14,
-        .pdf417,
-        .dataMatrix,
-        .aztec
-    ]
 
     private func getBarcodeTypeName(_ symbology: VNBarcodeSymbology) -> String {
         switch symbology {
@@ -67,7 +52,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             binaryMessenger: registrar.messenger()
         )
 
-
         instance.eventChannelWithType = FlutterEventChannel(
             name: "ultra_qr_scanner_events_with_type",
             binaryMessenger: registrar.messenger()
@@ -83,14 +67,14 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         registrar.register(factory, withId: "ultra_qr_camera_view")
     }
 
-   public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
-       if let args = arguments as? [String: Any], let channel = args["channel"] as? String, channel == "with_type" {
-           self.eventSinkWithType = eventSink
-       } else {
-           self.eventSink = eventSink
-       }
-       return nil
-   }
+    public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
+        if let args = arguments as? [String: Any], let channel = args["channel"] as? String, channel == "with_type" {
+            self.eventSinkWithType = eventSink
+        } else {
+            self.eventSink = eventSink
+        }
+        return nil
+    }
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         self.eventSink = nil
@@ -117,13 +101,11 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     }
 
     private func prepareScanner(result: @escaping FlutterResult) {
-        // Check camera permission
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         if status != .authorized {
             result(FlutterError(code: "PERMISSION_DENIED", message: "Camera permission is required", details: nil))
             return
         }
-
         setupCamera(result: result)
     }
 
@@ -146,7 +128,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     }
 
     private func setupCamera(result: @escaping FlutterResult) {
-        // Clean up existing session if any
         if let session = captureSession, session.isRunning {
             session.stopRunning()
         }
@@ -179,8 +160,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
             if captureSession.canAddOutput(videoOutput!) {
                 captureSession.addOutput(videoOutput!)
-
-                // Create preview layer
                 previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
                 previewLayer?.videoGravity = .resizeAspectFill
 
@@ -276,18 +255,14 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         let wasScanning = isScanning
         currentCameraPosition = position == "front" ? .front : .back
 
-        // Stop current session
         if let session = captureSession, session.isRunning {
             session.stopRunning()
         }
 
-        // Restart camera with new position
         setupCamera(result: { [weak self] setupResult in
-            // Check if setupResult is a FlutterError or success
             if let error = setupResult as? FlutterError {
                 result(error)
             } else {
-                // Setup was successful, start scanning again if needed
                 if wasScanning {
                     self?.scanOnce { _ in }
                 }
@@ -301,34 +276,44 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-    // Replace the existing Vision request:
-    let request = VNDetectBarcodesRequest { [weak self] request, error in
-        guard error == nil else {
-            print("Error processing frame: \(error?.localizedDescription ?? "Unknown error")")
-            return
-        }
+        let request = VNDetectBarcodesRequest { [weak self] request, error in
+            guard error == nil else {
+                print("Error processing frame: \(error?.localizedDescription ?? "Unknown error")")
+                return
+            }
 
-        if let results = request.results as? [VNBarcodeObservation] {
-            for result in results {
-                if let payload = result.payloadStringValue {
-                    DispatchQueue.main.async {
-                        // Send to legacy event sink
-                        self?.eventSink?(payload)
-
-                        // Send to new event sink with type info
-                        let resultWithType: [String: Any] = [
-                            "code": payload,
-                            "type": self?.getBarcodeTypeName(result.symbology) ?? "UNKNOWN"
-                        ]
-                        self?.eventSinkWithType?(resultWithType)
+            if let results = request.results as? [VNBarcodeObservation] {
+                for result in results {
+                    if let payload = result.payloadStringValue {
+                        DispatchQueue.main.async {
+                            self?.eventSink?(payload)
+                            let resultWithType: [String: Any] = [
+                                "code": payload,
+                                "type": self?.getBarcodeTypeName(result.symbology) ?? "UNKNOWN"
+                            ]
+                            self?.eventSinkWithType?(resultWithType)
+                        }
+                        return
                     }
-                    return // Only send first code found
                 }
             }
         }
-    }
 
-
+        // ✅ Set supported symbologies here
+        request.symbologies = [
+            .qr,
+            .code128,
+            .code39,
+            .code93,
+            .ean13,
+            .ean8,
+            .upce,
+            .codabar,
+            .itf14,
+            .pdf417,
+            .dataMatrix,
+            .aztec
+        ]
 
         do {
             try visionRequestHandler!.perform([request], on: pixelBuffer)
@@ -337,7 +322,6 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
     }
 
-    // Create preview layer for platform view
     func createPreviewLayer() -> AVCaptureVideoPreviewLayer? {
         return previewLayer
     }
@@ -362,7 +346,6 @@ class CameraViewFactory: NSObject, FlutterPlatformViewFactory {
 }
 
 // MARK: - Platform View Implementation
-// MARK: - Platform View Implementation (FIXED VERSION)
 class CameraPlatformView: NSObject, FlutterPlatformView {
     private let containerView: UIView
     private let plugin: UltraQrScannerPlugin
@@ -378,7 +361,6 @@ class CameraPlatformView: NSObject, FlutterPlatformView {
 
         setupPreviewLayer()
 
-        // Add observer to handle frame changes
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(orientationDidChange),
@@ -404,10 +386,8 @@ class CameraPlatformView: NSObject, FlutterPlatformView {
 
     private func updatePreviewLayerFrame() {
         guard let previewLayer = self.previewLayer else { return }
-
-        // Update frame to match container bounds
         CATransaction.begin()
-        CATransaction.setDisableActions(true) // Prevent animations
+        CATransaction.setDisableActions(true)
         previewLayer.frame = containerView.bounds
         CATransaction.commit()
     }
