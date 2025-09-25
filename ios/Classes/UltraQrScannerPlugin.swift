@@ -30,12 +30,18 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         case .ean13: return "EAN_13"
         case .ean8: return "EAN_8"
         case .upce: return "UPC_E"
-        case .codabar: return "CODABAR"
         case .itf14: return "ITF"
         case .pdf417: return "PDF417"
         case .dataMatrix: return "DATA_MATRIX"
         case .aztec: return "AZTEC"
-        default: return "UNKNOWN"
+        default:
+            // Handle codabar for iOS 15.0+
+            if #available(iOS 15.0, *) {
+                if symbology == .codabar {
+                    return "CODABAR"
+                }
+            }
+            return "UNKNOWN"
         }
     }
 
@@ -103,7 +109,8 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private func prepareScanner(result: @escaping FlutterResult) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         if status != .authorized {
-            result(FlutterError(code: "PERMISSION_DENIED", message: "Camera permission is required", details: nil))
+            let message = "Camera permission is required. Current status: \(status.rawValue)"
+            result(FlutterError(code: "PERMISSION_DENIED", message: message, details: nil))
             return
         }
         setupCamera(result: result)
@@ -142,7 +149,8 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
         let devicePosition = currentCameraPosition
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: devicePosition) else {
-            result(FlutterError(code: "NO_CAMERA", message: "No camera available", details: nil))
+            let message = "No camera available for position: \(devicePosition == .back ? "back" : "front")"
+            result(FlutterError(code: "NO_CAMERA", message: message, details: nil))
             return
         }
 
@@ -152,6 +160,9 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             let input = try AVCaptureDeviceInput(device: device)
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
+            } else {
+                result(FlutterError(code: "SETUP_ERROR", message: "Cannot add camera input to session", details: nil))
+                return
             }
 
             videoOutput = AVCaptureVideoDataOutput()
@@ -167,7 +178,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 isPrepared = true
                 result(true)
             } else {
-                result(FlutterError(code: "SETUP_ERROR", message: "Failed to add video output", details: nil))
+                result(FlutterError(code: "SETUP_ERROR", message: "Cannot add video output to session", details: nil))
             }
         } catch {
             result(FlutterError(code: "SETUP_ERROR", message: "Failed to setup camera: \(error.localizedDescription)", details: nil))
@@ -300,7 +311,7 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
 
         // ✅ Set supported symbologies here
-        request.symbologies = [
+        var symbologies: [VNBarcodeSymbology] = [
             .qr,
             .code128,
             .code39,
@@ -308,12 +319,18 @@ public class UltraQrScannerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             .ean13,
             .ean8,
             .upce,
-            .codabar,
             .itf14,
             .pdf417,
             .dataMatrix,
             .aztec
         ]
+        
+        // Add codabar support for iOS 15.0+
+        if #available(iOS 15.0, *) {
+            symbologies.append(.codabar)
+        }
+        
+        request.symbologies = symbologies
 
         do {
             try visionRequestHandler!.perform([request], on: pixelBuffer)

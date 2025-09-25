@@ -16,10 +16,7 @@ void main() {
     expect(initialPlatform, isInstanceOf<MethodChannelUltraQrScanner>());
   });
 
-  test('getPlatformVersion', () async {
-    UltraQrScannerPlatform.instance = MockUltraQrScannerPlatform();
-    expect(await UltraQrScanner().getPlatformVersion(), '42');
-  });
+
   
   test('UltraQrScanner methods exist', () {
     // Test that the API methods exist

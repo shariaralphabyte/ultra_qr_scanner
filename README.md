@@ -51,7 +51,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ultra_qr_scanner: ^3.0.2
+  ultra_qr_scanner: ^3.0.3
 ```
 
 ```bash
@@ -733,8 +733,9 @@ final result = await UltraQrScanner.scanOnce();
 
 ## 📈 What's New
 
-### [2.1.0] - Latest
+### [3.0.3] - Latest
 - 🤖 **Auto-start scanning mode** - Begin scanning immediately when widget appears
+- 🤖 **Support Google 16KB Page size** - Support Google 16KB Page size
 - 👆 **Enhanced manual controls** - Better user-controlled scanning experience
 - 🎛️ **Flexible UI options** - Show/hide start/stop button independently
 - ⏱️ **Improved initialization** - Better timing for auto-start mode

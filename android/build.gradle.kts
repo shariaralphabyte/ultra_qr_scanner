@@ -2,7 +2,7 @@ group = "com.shariar99.ultra_qr_scanner"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    val kotlinVersion = "1.8.22"
+    val kotlinVersion = "2.2.20"
     repositories {
         google()
         mavenCentral()
@@ -50,11 +50,11 @@ android {
     }
 
     dependencies {
-        implementation("androidx.camera:camera-core:1.3.1")
-        implementation("androidx.camera:camera-camera2:1.3.1")
-        implementation("androidx.camera:camera-lifecycle:1.3.1")
-        implementation("androidx.camera:camera-view:1.3.1")
-        implementation("com.google.mlkit:barcode-scanning:17.2.0")
+        implementation("androidx.camera:camera-core:1.5.0")
+        implementation("androidx.camera:camera-camera2:1.5.0")
+        implementation("androidx.camera:camera-lifecycle:1.5.0")
+        implementation("androidx.camera:camera-view:1.5.0")
+        implementation("com.google.mlkit:barcode-scanning:17.3.0")
         implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
         testImplementation("org.jetbrains.kotlin:kotlin-test")
         testImplementation("org.mockito:mockito-core:5.0.0")

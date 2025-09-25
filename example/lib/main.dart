@@ -4,13 +4,6 @@ import 'package:ultra_qr_scanner/ultra_qr_scanner_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Request camera permission and prepare scanner during app startup
-  final hasPermission = await UltraQrScanner.requestPermissions();
-  if (hasPermission) {
-    await UltraQrScanner.prepareScanner();
-  }
-
   runApp(const MyApp());
 }
 
@@ -39,6 +32,41 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   String? _lastScannedCode;
   bool _useAutoStart = true; // Toggle this to test different modes
+  String _debugInfo = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _testPermissionsAndScanner();
+  }
+
+  Future<void> _testPermissionsAndScanner() async {
+    try {
+      setState(() {
+        _debugInfo = 'Testing permissions...';
+      });
+      
+      final hasPermission = await UltraQrScanner.requestPermissions();
+      setState(() {
+        _debugInfo = 'Permission result: $hasPermission';
+      });
+      
+      if (hasPermission) {
+        setState(() {
+          _debugInfo = 'Preparing scanner...';
+        });
+        
+        await UltraQrScanner.prepareScanner();
+        setState(() {
+          _debugInfo = 'Scanner prepared successfully!';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _debugInfo = 'Error: $e';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +119,31 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 20),
+
+            // Debug info display
+            if (_debugInfo.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  color: _debugInfo.contains('Error') ? Colors.red.shade100 : Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _debugInfo.contains('Error') ? Colors.red : Colors.blue,
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  'Debug: $_debugInfo',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _debugInfo.contains('Error') ? Colors.red.shade800 : Colors.blue.shade800,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
 
             const SizedBox(height: 20),
 

@@ -1,4 +1,7 @@
 # Changelog
+## 3.0.3
+* **Support Google 16KB Page size**: Support Google 16KB Page size
+* **Fix Ios scanning error**: Fix Ios scanning error
 ## 3.0.2
 * **New Readme update**: add and update readme for more clear documentation 
 ## 3.0.0
