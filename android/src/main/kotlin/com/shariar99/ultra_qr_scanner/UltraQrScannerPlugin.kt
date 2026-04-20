@@ -213,31 +213,31 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                         .build()
                         .also { analyzer ->
                             analyzer.setAnalyzer(cameraExecutor) { image ->
-                                val inputImage = InputImage.fromMediaImage(
-                                    image.image!!,
-                                    image.imageInfo.rotationDegrees
-                                )
-                                barcodeScanner?.process(inputImage)
-                                    ?.addOnSuccessListener { barcodes ->
-                                        for (barcode in barcodes) {
-                                            // Send to legacy event sink
-                                            eventSink?.success(barcode.rawValue)
-
-
-                                            // Send to new event sink with type info
-                                            val result = mapOf(
-                                                "code" to barcode.rawValue,
-                                                "type" to getBarcodeFormatName(barcode.format)
-                                            )
-                                            eventSinkWithType?.success(result)
+                                val mediaImage = image.image
+                                if (mediaImage == null) {
+                                    image.close()
+                                    return@setAnalyzer
+                                }
+                                try {
+                                    val inputImage = InputImage.fromMediaImage(
+                                        mediaImage,
+                                        image.imageInfo.rotationDegrees
+                                    )
+                                    barcodeScanner?.process(inputImage)
+                                        ?.addOnSuccessListener { barcodes ->
+                                            for (barcode in barcodes) {
+                                                eventSink?.success(barcode.rawValue)
+                                                val payload = mapOf(
+                                                    "code" to barcode.rawValue,
+                                                    "type" to getBarcodeFormatName(barcode.format)
+                                                )
+                                                eventSinkWithType?.success(payload)
+                                            }
                                         }
-                                    }
-                                    ?.addOnFailureListener { e ->
-                                        eventSink?.error("ERROR", "Failed to scan QR code", e.message)
-                                    }
-                                    ?.addOnCompleteListener {
-                                        image.close()
-                                    }
+                                        ?.addOnCompleteListener { image.close() }
+                                } catch (e: Exception) {
+                                    image.close()
+                                }
                             }
                         }
 
@@ -402,19 +402,28 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor) { image ->
-                        val inputImage = InputImage.fromMediaImage(image.image!!, image.imageInfo.rotationDegrees)
-                        barcodeScanner?.process(inputImage)
-                            ?.addOnSuccessListener { barcodes ->
-                                for (barcode in barcodes) {
-                                    eventSink?.success(barcode.rawValue)
+                        val mediaImage = image.image
+                        if (mediaImage == null) {
+                            image.close()
+                            return@setAnalyzer
+                        }
+                        try {
+                            val inputImage = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
+                            barcodeScanner?.process(inputImage)
+                                ?.addOnSuccessListener { barcodes ->
+                                    for (barcode in barcodes) {
+                                        eventSink?.success(barcode.rawValue)
+                                        val payload = mapOf(
+                                            "code" to barcode.rawValue,
+                                            "type" to getBarcodeFormatName(barcode.format)
+                                        )
+                                        eventSinkWithType?.success(payload)
+                                    }
                                 }
-                            }
-                            ?.addOnFailureListener { e ->
-                                eventSink?.error("ERROR", "Failed to scan QR code", e.message)
-                            }
-                            ?.addOnCompleteListener {
-                                image.close()
-                            }
+                                ?.addOnCompleteListener { image.close() }
+                        } catch (e: Exception) {
+                            image.close()
+                        }
                     }
                 }
 
