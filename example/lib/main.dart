@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner_widget.dart';
 
@@ -42,29 +43,46 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _testPermissionsAndScanner() async {
     try {
-      setState(() {
-        _debugInfo = 'Testing permissions...';
-      });
-      
-      final hasPermission = await UltraQrScanner.requestPermissions();
-      setState(() {
-        _debugInfo = 'Permission result: $hasPermission';
-      });
-      
-      if (hasPermission) {
-        setState(() {
-          _debugInfo = 'Preparing scanner...';
-        });
-        
+      setState(() => _debugInfo = 'Requesting camera permission...');
+
+      final status = await Permission.camera.request();
+
+      if (status.isGranted) {
+        setState(() => _debugInfo = 'Permission granted. Preparing scanner...');
         await UltraQrScanner.prepareScanner();
-        setState(() {
-          _debugInfo = 'Scanner prepared successfully!';
-        });
+        setState(() => _debugInfo = 'Scanner ready!');
+      } else if (status.isPermanentlyDenied) {
+        setState(() => _debugInfo = 'Permission permanently denied.');
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Camera Permission Required'),
+              content: const Text(
+                'Camera access is required to scan QR codes. '
+                'Please enable it in app settings.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    openAppSettings();
+                  },
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        setState(() => _debugInfo = 'Camera permission denied.');
       }
     } catch (e) {
-      setState(() {
-        _debugInfo = 'Error: $e';
-      });
+      setState(() => _debugInfo = 'Error: $e');
     }
   }
 
