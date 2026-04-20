@@ -97,4 +97,11 @@ class MethodChannelUltraQrScanner extends UltraQrScannerPlatform {
   Stream<String> scanStream() {
     return eventChannel.receiveBroadcastStream().map((event) => event as String);
   }
+
+  @override
+  Future<void> disposeScanner() async {
+    try {
+      await methodChannel.invokeMethod<void>('disposeScanner');
+    } catch (_) {}
+  }
 }

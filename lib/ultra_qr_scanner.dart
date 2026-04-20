@@ -14,7 +14,6 @@ class UltraQrScanner {
       return false;
     }
   }
-
   /// Prepare scanner for ultra-fast access
   static Future<void> prepareScanner() async {
     try {
@@ -113,6 +112,15 @@ class UltraQrScanner {
         message: 'Failed to switch camera: $e',
       );
     }
+  }
+
+  /// Fully dispose the scanner session (call from widget dispose)
+  static Future<void> disposeScanner() async {
+    try {
+      await UltraQrScannerPlatform.instance.disposeScanner();
+      _isPrepared = false;
+      _isScanning = false;
+    } catch (_) {}
   }
 
   /// Get platform version (for testing)

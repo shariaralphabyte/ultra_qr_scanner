@@ -171,6 +171,10 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   Future<void> _switchCamera() async {
     try {
       final newPosition = _currentCamera == 'back' ? 'front' : 'back';
+      if (newPosition == 'front' && _isFlashOn) {
+        await UltraQrScanner.toggleFlash(false);
+        setState(() => _isFlashOn = false);
+      }
       await UltraQrScanner.switchCamera(newPosition);
       setState(() {
         _currentCamera = newPosition;
@@ -284,7 +288,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (widget.showFlashToggle)
+                    if (widget.showFlashToggle && _currentCamera == 'back')
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.black54,
@@ -441,9 +445,7 @@ class _UltraQrScannerWidgetState extends State<UltraQrScannerWidget> {
   @override
   void dispose() {
     _scanSubscription?.cancel();
-    if (_isScanning) {
-      _stopScanning();
-    }
+    UltraQrScanner.disposeScanner();
     super.dispose();
   }
 }

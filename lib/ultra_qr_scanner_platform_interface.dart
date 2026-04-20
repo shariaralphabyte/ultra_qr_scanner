@@ -58,4 +58,7 @@ abstract class UltraQrScannerPlatform extends PlatformInterface {
     throw UnimplementedError('scanStreamWithType() has not been implemented.');
   }
 
+  Future<void> disposeScanner() {
+    throw UnimplementedError('disposeScanner() has not been implemented.');
+  }
 }
