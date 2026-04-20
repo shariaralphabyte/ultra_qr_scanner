@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:ultra_qr_scanner/ultra_qr_scanner.dart';
@@ -39,7 +40,15 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _requestPermission();
+    if (Platform.isIOS) {
+      // iOS: the scanner widget handles permission natively via AVFoundation
+      setState(() {
+        _permissionGranted = true;
+        _debugInfo = '';
+      });
+    } else {
+      _requestPermission();
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -61,7 +70,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _openSettings() async {
     await openAppSettings();
-    // Re-check permission after returning from settings
     final status = await Permission.camera.status;
     if (status.isGranted && mounted) {
       setState(() {
