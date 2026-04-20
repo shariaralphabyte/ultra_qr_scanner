@@ -1,4 +1,10 @@
 # Changelog
+
+> **⚠️ Recommendation:** Always use the latest version. Versions below 3.0.4 contain critical bugs on iOS (blank preview, camera freeze, hot restart crash). Versions below 3.0.5 have a blank preview issue on Android when navigating back. Upgrading to the latest version is strongly advised.
+
+## 3.0.5
+* **Fix Android blank preview on navigate back**: When navigating away and returning to the scanner screen, Flutter recreates the `AndroidView` with a new `PreviewView`. The CameraX `Preview` surface is now reconnected to the new view via `reconnectPreviewSurface()`, preventing a blank camera preview.
+
 ## 3.0.4
 * **Fix iOS camera preview blank screen**: Camera session now starts immediately on `prepareScanner` so preview appears without requiring the user to press Start Scan
 * **Fix iOS camera switch freeze**: Platform view now receives a notification when the preview layer changes (front/back switch) and swaps the layer instantly — no more frozen frame

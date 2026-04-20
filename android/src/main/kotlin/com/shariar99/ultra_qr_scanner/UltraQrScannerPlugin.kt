@@ -110,6 +110,14 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         return previewView!!
     }
 
+    fun reconnectPreviewSurface() {
+        val pv = previewView ?: return
+        preview?.setSurfaceProvider(pv.surfaceProvider)
+        if (isScanning && ::cameraProvider.isInitialized) {
+            bindCameraUseCases()
+        }
+    }
+
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
         when (call.method) {
             "prepareScanner" -> prepareScanner(result)
@@ -395,17 +403,16 @@ class UltraQrScannerPlugin: FlutterPlugin, MethodCallHandler, StreamHandler, Act
         try {
             if (::cameraProvider.isInitialized && isScanning) {
                 cameraProvider.unbindAll()
+
+                // Attach surface provider before binding so the preview renders immediately
+                previewView?.let { preview?.setSurfaceProvider(it.surfaceProvider) }
+
                 camera = cameraProvider.bindToLifecycle(
                     this,
                     cameraSelector,
                     preview,
                     imageAnalyzer
                 )
-
-                // Update preview view
-                previewView?.let {
-                    preview?.setSurfaceProvider(it.surfaceProvider)
-                }
             }
         } catch (e: Exception) {
             eventSink?.error("CAMERA_ERROR", "Failed to bind camera use cases", e.message)
@@ -480,6 +487,9 @@ class CameraPlatformView(
 
         // Add the preview view to the frame layout
         frameLayout.addView(previewView)
+
+        // Reconnect camera surface in case the view is being recreated (e.g. navigate back)
+        plugin.reconnectPreviewSurface()
     }
 
     override fun getView(): View = frameLayout
