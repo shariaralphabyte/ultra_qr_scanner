@@ -1,4 +1,11 @@
 # Changelog
+## 3.0.4
+* **Fix iOS camera preview blank screen**: Camera session now starts immediately on `prepareScanner` so preview appears without requiring the user to press Start Scan
+* **Fix iOS camera switch freeze**: Platform view now receives a notification when the preview layer changes (front/back switch) and swaps the layer instantly — no more frozen frame
+* **Fix preview layer frame**: Added `layoutSubviews` override to `CameraContainerView` so the preview layer resizes correctly from `CGRect.zero` to the real widget size
+* **Fix hot restart crash**: Added `disposeScanner` method that fully shuts down the native `AVCaptureSession`; widget `dispose()` now calls it so the native session is cleaned up before recreation
+* **Fix flash button on front camera**: Flash toggle button is now hidden when the front camera is active; switching to front camera with flash on automatically turns it off
+
 ## 3.0.3
 * **Support Google 16KB Page size**: Support Google 16KB Page size
 * **Fix Ios scanning error**: Fix Ios scanning error
