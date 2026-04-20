@@ -16,6 +16,9 @@ class UltraQrScanner {
   }
   /// Prepare scanner for ultra-fast access
   static Future<void> prepareScanner() async {
+    // Reset Dart state so re-prepare (e.g. after hot restart) is always clean
+    _isPrepared = false;
+    _isScanning = false;
     try {
       final success = await UltraQrScannerPlatform.instance.prepareScanner();
       if (success) {

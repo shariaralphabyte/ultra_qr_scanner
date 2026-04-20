@@ -32,57 +32,42 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   String? _lastScannedCode;
-  bool _useAutoStart = true; // Toggle this to test different modes
+  bool _useAutoStart = true;
   String _debugInfo = '';
+  bool _permissionGranted = false;
 
   @override
   void initState() {
     super.initState();
-    _testPermissionsAndScanner();
+    _requestPermission();
   }
 
-  Future<void> _testPermissionsAndScanner() async {
-    try {
-      setState(() => _debugInfo = 'Requesting camera permission...');
+  Future<void> _requestPermission() async {
+    setState(() => _debugInfo = 'Requesting camera permission...');
 
-      final status = await Permission.camera.request();
+    final status = await Permission.camera.request();
 
-      if (status.isGranted) {
-        setState(() => _debugInfo = 'Permission granted. Preparing scanner...');
-        await UltraQrScanner.prepareScanner();
-        setState(() => _debugInfo = 'Scanner ready!');
-      } else if (status.isPermanentlyDenied) {
-        setState(() => _debugInfo = 'Permission permanently denied.');
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: const Text('Camera Permission Required'),
-              content: const Text(
-                'Camera access is required to scan QR codes. '
-                'Please enable it in app settings.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    openAppSettings();
-                  },
-                  child: const Text('Open Settings'),
-                ),
-              ],
-            ),
-          );
-        }
-      } else {
-        setState(() => _debugInfo = 'Camera permission denied.');
-      }
-    } catch (e) {
-      setState(() => _debugInfo = 'Error: $e');
+    if (status.isGranted) {
+      setState(() {
+        _permissionGranted = true;
+        _debugInfo = 'Camera permission granted.';
+      });
+    } else if (status.isPermanentlyDenied) {
+      setState(() => _debugInfo = 'Permission permanently denied. Open settings to enable.');
+    } else {
+      setState(() => _debugInfo = 'Camera permission denied.');
+    }
+  }
+
+  Future<void> _openSettings() async {
+    await openAppSettings();
+    // Re-check permission after returning from settings
+    final status = await Permission.camera.status;
+    if (status.isGranted && mounted) {
+      setState(() {
+        _permissionGranted = true;
+        _debugInfo = 'Camera permission granted.';
+      });
     }
   }
 
@@ -165,41 +150,59 @@ class _MyHomePageState extends State<MyHomePage> {
 
             const SizedBox(height: 20),
 
-            // Show scanner widget
-            Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+            // Show scanner widget only after permission is granted
+            if (_permissionGranted)
+              Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: UltraQrScannerWidget(
+                  onCodeDetected: (code, type) {
+                    setState(() {
+                      _lastScannedCode = code;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Scanned: $code'),
+                        backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  showFlashToggle: true,
+                  autoStop: true,
+                  showStartStopButton: !_useAutoStart,
+                  autoStart: _useAutoStart,
+                ),
+              )
+            else
+              Column(
+                children: [
+                  const Icon(Icons.camera_alt_outlined, size: 64, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  const Text('Camera permission is required to scan QR codes.'),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _debugInfo.contains('permanently')
+                        ? _openSettings
+                        : _requestPermission,
+                    icon: const Icon(Icons.lock_open),
+                    label: Text(_debugInfo.contains('permanently')
+                        ? 'Open Settings'
+                        : 'Grant Permission'),
                   ),
                 ],
               ),
-              child: UltraQrScannerWidget(
-                onCodeDetected: (code , type) {
-                  setState(() {
-                    _lastScannedCode = code;
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Scanned: $code'),
-                      backgroundColor: Colors.green,
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-                showFlashToggle: true,
-                autoStop: true,
-                // NEW PARAMETERS:
-                showStartStopButton: !_useAutoStart, // Hide button in auto mode
-                autoStart: _useAutoStart,             // Auto-start in auto mode
-              ),
-            ),
 
             const SizedBox(height: 20),
 
